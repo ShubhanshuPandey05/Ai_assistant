@@ -11,13 +11,6 @@ __pycache__/
 # Environment variables
 .env
 
-# gRPC generated files (optional if regenerated often)
-turn_pb2.py
-turn_pb2_grpc.py
-
-# Temporary folders
-temp/
-
 # VSCode settings (optional)
 .vscode/
 
