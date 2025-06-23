@@ -780,7 +780,7 @@ const aiProcessing = {
                 },
                 body: JSON.stringify({
                     text,
-                    voice_id: process.env.GABBER_VOICEID_FEMALE2,
+                    voice_id: process.env.GABBER_VOICEID_FEMALE,
                 })
             });
 
