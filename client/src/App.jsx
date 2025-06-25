@@ -12,7 +12,50 @@ const App = () => {
   const [currentPrompt, setCurrentPrompt] = useState('');
   const [editingPrompt, setEditingPrompt] = useState('');
   const [isPromptEditing, setIsPromptEditing] = useState(false);
-  const [availableFunction, setAvailableFunction] = useState([]);
+  const [availableFunction, setAvailableFunction] = useState([
+    {
+        type: "function",
+        name: "getAllProducts",
+        description: "Get a list of all products in the store.",
+        parameters: {
+            type: "object",
+            properties: {},
+            required: []
+        }
+    },
+    {
+        type: "function",
+        name: "getUserDetailsByPhoneNo",
+        description: "Get customer details",
+        parameters: {
+            type: "object",
+            properties: {},
+            required: []
+        }
+    },
+    {
+        type: "function",
+        name: "getAllOrders",
+        description: "Get a list of all orders.",
+        parameters: {
+            type: "object",
+            properties: {},
+            required: []
+        }
+    },
+    {
+        type: "function",
+        name: "getOrderById",
+        description: "Get details for a specific order by its ID.",
+        parameters: {
+            type: "object",
+            properties: {
+                orderId: { type: "string", description: "The Shopify order ID." }
+            },
+            required: ["orderId"]
+        }
+    }
+]);
   const [selectedFunction, setSelectedFunction] = useState([]);
   const wsRef = useRef(null);
   const audioContextRef = useRef(null);
@@ -181,8 +224,8 @@ const App = () => {
       }
 
       // Connect to WebSocket
-      wsRef.current = new WebSocket('wss://call-server.shipfast.studio');
-      // wsRef.current = new WebSocket('ws://localhost:5001');
+      // wsRef.current = new WebSocket('wss://call-server.shipfast.studio');
+      wsRef.current = new WebSocket('ws://localhost:5001');
 
       wsRef.current.onopen = () => {
         console.log('WebSocket connected, starting session...');
@@ -210,9 +253,9 @@ const App = () => {
             console.log('Session started with ID:', data.sessionId || sessionId);
 
           } else if (data.type === 'current_prompt') {
-            console.log('Current prompt received:', data.prompt);
-            console.log(data)
-            setAvailableFunction(data.functions)
+            // console.log('Current prompt received:', data.prompt);
+            // console.log(data)
+            // setAvailableFunction(data.functions)
             setCurrentPrompt(data.prompt);
             setEditingPrompt(data.prompt);
 
@@ -683,6 +726,7 @@ const App = () => {
               availableFunction.map((func,index) => {
                 // console.log("function",index)
                 // let fun = `${func}`
+                console.log(selectedFunction.includes(func))
                 return (
                   <div key={index} className='p-2'>
                     <input
@@ -691,7 +735,7 @@ const App = () => {
                       name="funcs"
                       className='m-2 w-5'
                       onChange={handleFunctionInput}
-                      checked={selectedFunction.includes(availableFunction[index])}
+                      checked={selectedFunction.includes(func)}
                     />
                     {func.name}
                   </div>

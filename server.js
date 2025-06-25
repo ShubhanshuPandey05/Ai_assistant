@@ -827,11 +827,11 @@ const setChannel = (session, channel) => {
 }
 
 const changePrompt = (session, prompt, tools, ws) => {
-    let prompt = `${prompt}
+    let changePrompt = `${prompt}
         Available channels:
         ${session.availableChannel.join(",")}
         `
-    session.prompt = prompt;
+    session.prompt = changePrompt;
     session.tools = tools
 
     ws.send(JSON.stringify({
@@ -1273,7 +1273,7 @@ wss.on('connection', (ws, req) => {
             } else if (parsedData.event === 'change_prompt') {
                 console.log('session', session.streamSid)
                 console.log('prompt', parsedData.prompt)
-                changePrompt(session, parsedData.prompt, parsedData.tools)
+                changePrompt(session, parsedData.prompt, parsedData.tools, ws)
             }
             // Add other event types if necessary (e.g., 'stop', 'mark')
         } catch (err) {
