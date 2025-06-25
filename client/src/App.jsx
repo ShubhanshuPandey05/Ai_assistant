@@ -224,8 +224,8 @@ const App = () => {
       }
 
       // Connect to WebSocket
-      // wsRef.current = new WebSocket('wss://call-server.shipfast.studio');
-      wsRef.current = new WebSocket('ws://localhost:5001');
+      wsRef.current = new WebSocket('wss://call-server.shipfast.studio');
+      // wsRef.current = new WebSocket('ws://localhost:5001');
 
       wsRef.current.onopen = () => {
         console.log('WebSocket connected, starting session...');
