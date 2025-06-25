@@ -1,3 +1,4 @@
+
 import { useEffect, useRef, useState } from 'react';
 
 const App = () => {
@@ -8,6 +9,11 @@ const App = () => {
   const [interimTranscript, setInterimTranscript] = useState('');
   const [error, setError] = useState(null);
   const [audioLevel, setAudioLevel] = useState(0);
+  const [currentPrompt, setCurrentPrompt] = useState('');
+  const [editingPrompt, setEditingPrompt] = useState('');
+  const [isPromptEditing, setIsPromptEditing] = useState(false);
+  const [availableFunction, setAvailableFunction] = useState([]);
+  const [selectedFunction, setSelectedFunction] = useState([]);
   const wsRef = useRef(null);
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
@@ -131,14 +137,6 @@ const App = () => {
   }, [transcript, interimTranscript]);
 
   const cleanup = () => {
-    if (wsRef.current && sessionId) {
-      wsRef.current.send(JSON.stringify({
-        type: 'stop_session',
-        sessionId: sessionId
-      }));
-      wsRef.current.close();
-    }
-
     // Clean up audio processing
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
@@ -159,6 +157,149 @@ const App = () => {
       audioContextRef.current.close();
     }
     audioBufferRef.current = [];
+  };
+
+  const cleanupConnection = () => {
+    if (wsRef.current && sessionId) {
+      wsRef.current.send(JSON.stringify({
+        type: 'stop_session',
+        sessionId: sessionId
+      }));
+      wsRef.current.close();
+    }
+    wsRef.current = null;
+  };
+
+  // Separate WebSocket connection function
+  const connectWebSocket = async () => {
+    try {
+      setError(null);
+
+      // Close existing connection if any
+      if (wsRef.current) {
+        cleanupConnection();
+      }
+
+      // Connect to WebSocket
+      wsRef.current = new WebSocket('wss://call-server.shipfast.studio');
+      // wsRef.current = new WebSocket('ws://localhost:5001');
+
+      wsRef.current.onopen = () => {
+        console.log('WebSocket connected, starting session...');
+
+        // Generate session ID (similar to streamSid)
+        const sid = 'MZ' + Math.random().toString(36).substr(2, 32);
+        setSessionId(sid);
+
+        // Initialize session with the server
+        wsRef.current.send(JSON.stringify({
+          event: 'start',
+          streamSid: sid,
+          type: 'start_session'
+        }));
+
+        setIsConnected(true);
+      };
+
+      wsRef.current.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('Received message:', data);
+
+          if (data.type === 'session_started') {
+            console.log('Session started with ID:', data.sessionId || sessionId);
+
+          } else if (data.type === 'current_prompt') {
+            console.log('Current prompt received:', data.prompt);
+            console.log(data)
+            setAvailableFunction(data.functions)
+            setCurrentPrompt(data.prompt);
+            setEditingPrompt(data.prompt);
+
+          } else if (data.event === 'media' && data.media?.payload) {
+            console.log(data)
+            if (data.type == 'text_response') {
+              console.log('Text response:', data.media.payload);
+              setChatMessages(prev => [...prev, { role: 'assistant', content: data.media.payload }]);
+            } else {
+              // Handle μ-law audio from server
+              queueAudio(data.media.payload, false);
+            }
+
+          } else if (data.type === 'text' || data.type === 'text_response') {
+            console.log('Text response:', data.media.payload);
+            setChatMessages(prev => [...prev, { role: 'assistant', content: data.media.payload }]);
+
+          } else if (data.type === 'audio') {
+            // Handle regular base64 audio
+            const binaryString = window.atob(data.audio);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+              bytes[i] = binaryString.charCodeAt(i);
+            }
+            queueAudio(bytes.buffer, !data.isFinal);
+
+            if (data.latency) {
+              setLatency({
+                llm: data.latency.llm || 0,
+                stt: data.latency.stt || 0,
+                tts: data.latency.tts || 0
+              });
+            }
+
+          } else if (data.type === 'tts_error') {
+            console.error('TTS Error:', data.error);
+            setError('TTS Error: ' + data.error);
+
+          } else if (data.transcript) {
+            if (data.isInterim) {
+              setInterimTranscript(data.transcript);
+            } else {
+              setTranscript(prev => prev + ' ' + data.transcript);
+              setInterimTranscript('');
+            }
+
+          } else if (data.error) {
+            setError(data.error);
+            console.error('Server error:', data.error);
+          }
+
+        } catch (err) {
+          console.error('Error parsing WebSocket message:', err);
+          setError('Error parsing server response');
+        }
+      };
+
+      wsRef.current.onerror = (error) => {
+        setError('WebSocket connection error');
+        console.error('WebSocket error:', error);
+      };
+
+      wsRef.current.onclose = (event) => {
+        console.log('WebSocket closed:', event.code, event.reason);
+        setIsConnected(false);
+        setSessionId(null);
+        setCurrentPrompt('');
+        setEditingPrompt('');
+      };
+
+    } catch (err) {
+      setError('Failed to connect: ' + err.message);
+      console.error('Error connecting:', err);
+    }
+  };
+
+  const disconnectWebSocket = () => {
+    // Stop recording if active
+    if (recording) {
+      stopRecording();
+    }
+
+    cleanupConnection();
+    setIsConnected(false);
+    setSessionId(null);
+    setCurrentPrompt('');
+    setEditingPrompt('');
   };
 
   const setupAudioAnalysis = (stream) => {
@@ -330,8 +471,11 @@ const App = () => {
     console.log('Sending chat message:', chatInput);
 
     wsRef.current.send(JSON.stringify({
+      event: 'media',
       type: 'chat',
-      message: chatInput
+      media: {
+        payload: chatInput
+      }
     }));
     setChatInput('');
   };
@@ -340,7 +484,38 @@ const App = () => {
     setChatInput(e.target.value);
   };
 
+  const handlePromptEdit = () => {
+    setIsPromptEditing(true);
+  };
+
+  const handlePromptSave = () => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      setError('Not connected to server');
+      return;
+    }
+    console.log('Sending prompt change:', editingPrompt);
+    wsRef.current.send(JSON.stringify({
+      event: 'change_prompt',
+      streamSid: sessionId,
+      prompt: editingPrompt,
+      tools:selectedFunction
+    }));
+
+    setCurrentPrompt(editingPrompt);
+    setIsPromptEditing(false);
+  };
+
+  const handlePromptCancel = () => {
+    setEditingPrompt(currentPrompt);
+    setIsPromptEditing(false);
+  };
+
   const startRecording = async () => {
+    if (!isConnected) {
+      setError('Please connect to server first');
+      return;
+    }
+
     try {
       setError(null);
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -354,105 +529,8 @@ const App = () => {
       });
 
       setupAudioAnalysis(stream);
-
-      // Connect to WebSocket
-      wsRef.current = new WebSocket('ws://localhost:5001');
-
-      wsRef.current.onopen = () => {
-        console.log('WebSocket connected, starting session...');
-
-        // Generate session ID (similar to streamSid)
-        const sid = 'MZ' + Math.random().toString(36).substr(2, 32);
-        setSessionId(sid);
-
-        // Initialize session with the server
-        wsRef.current.send(JSON.stringify({
-          event: 'start',
-          streamSid: sid,
-          type: 'start_session'
-        }));
-
-        // Setup audio processing for μ-law
-        setupAudioProcessing(stream);
-        setIsConnected(true);
-        setRecording(true);
-      };
-
-      wsRef.current.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          console.log('Received message:', data);
-
-          if (data.type === 'session_started') {
-            console.log('Session started with ID:', data.sessionId || sessionId);
-
-          } else if (data.event === 'media' && data.media?.payload) {
-            // Handle μ-law audio from server
-            queueAudio(data.media.payload, false);
-
-          } else if (data.type === 'audio') {
-            // Handle regular base64 audio
-            const binaryString = window.atob(data.audio);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-              bytes[i] = binaryString.charCodeAt(i);
-            }
-            queueAudio(bytes.buffer, !data.isFinal);
-
-            if (data.latency) {
-              setLatency({
-                llm: data.latency.llm || 0,
-                stt: data.latency.stt || 0,
-                tts: data.latency.tts || 0
-              });
-            }
-
-          } else if (data.type === 'tts_error') {
-            console.error('TTS Error:', data.error);
-            setError('TTS Error: ' + data.error);
-
-          } else if (data.transcript) {
-            if (data.isInterim) {
-              setInterimTranscript(data.transcript);
-            } else {
-              setTranscript(prev => prev + ' ' + data.transcript);
-              setInterimTranscript('');
-            }
-
-          } else if (data.type === 'text' || data.type === 'text_response') {
-            console.log('Text response:', data.text);
-            setChatMessages(prev => [...prev, { role: 'assistant', content: data.text }]);
-
-          } else if (data.error) {
-            setError(data.error);
-            console.error('Server error:', data.error);
-          }
-
-        } catch (err) {
-          console.error('Error parsing WebSocket message:', err);
-          setError('Error parsing server response');
-        }
-      };
-
-      wsRef.current.onerror = (error) => {
-        setError('WebSocket connection error');
-        console.error('WebSocket error:', error);
-      };
-
-      wsRef.current.onclose = (event) => {
-        console.log('WebSocket closed:', event.code, event.reason);
-        setIsConnected(false);
-        setSessionId(null);
-
-        if (recording && !event.wasClean) {
-          setTimeout(() => {
-            if (recording) {
-              console.log('Attempting to reconnect...');
-              startRecording();
-            }
-          }, 2000);
-        }
-      };
+      setupAudioProcessing(stream);
+      setRecording(true);
 
     } catch (err) {
       setError('Failed to access microphone: ' + err.message);
@@ -463,8 +541,6 @@ const App = () => {
   const stopRecording = () => {
     cleanup();
     setRecording(false);
-    setIsConnected(false);
-    setSessionId(null);
     setAudioLevel(0);
     setInterimTranscript('');
   };
@@ -473,6 +549,17 @@ const App = () => {
     setTranscript('');
     setInterimTranscript('');
   };
+
+  const handleFunctionInput = (e) => {
+    const { value, checked } = e.target;
+    // const val = availableFunction.find(value);
+    console.log(availableFunction[value]);
+    setSelectedFunction(prev =>
+      checked ? [...prev, availableFunction[value]] : prev.filter(func => func !== availableFunction[value])
+    );
+    // console.log(selectedFunction)
+  };
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white p-6">
@@ -491,6 +578,9 @@ const App = () => {
           <p className="text-sm text-gray-300">Connection</p>
           <div className={`mt-1 text-lg font-bold ${isConnected ? 'text-green-400' : 'text-red-400'}`}>
             {isConnected ? 'Connected' : 'Disconnected'}
+          </div>
+          <div className={`text-sm mt-1 ${recording ? 'text-green-400' : 'text-gray-400'}`}>
+            {recording ? 'Recording Active' : 'Recording Inactive'}
           </div>
           <div className="text-xs text-gray-400 mt-1">
             Format: 8kHz μ-law mono
@@ -522,33 +612,55 @@ const App = () => {
         </div>
       </div>
 
-      {/* Controls */}
+      {/* Connection Controls */}
       <div className="flex flex-wrap gap-4 mb-6 justify-center">
-        {recording ? (
+        {!isConnected ? (
           <button
-            onClick={stopRecording}
-            className="bg-red-600 hover:bg-red-700 transition px-6 py-2 rounded-full font-semibold shadow"
+            onClick={connectWebSocket}
+            className="bg-blue-600 hover:bg-blue-700 transition px-6 py-2 rounded-full font-semibold shadow"
           >
-            ⏹ Stop Recording
+            🔌 Connect to Server
           </button>
         ) : (
           <button
-            onClick={startRecording}
-            className="bg-green-600 hover:bg-green-700 transition px-6 py-2 rounded-full font-semibold shadow"
+            onClick={disconnectWebSocket}
+            className="bg-red-600 hover:bg-red-700 transition px-6 py-2 rounded-full font-semibold shadow"
           >
-            🎙️ Start Recording
+            🔌 Disconnect
           </button>
         )}
-        <button
-          onClick={clearTranscript}
-          className="bg-yellow-600 hover:bg-yellow-700 transition px-6 py-2 rounded-full font-semibold shadow"
-        >
-          🧹 Clear Transcript
-        </button>
       </div>
 
+      {/* Recording Controls */}
+      {isConnected && (
+        <div className="flex flex-wrap gap-4 mb-6 justify-center">
+          {recording ? (
+            <button
+              onClick={stopRecording}
+              className="bg-red-600 hover:bg-red-700 transition px-6 py-2 rounded-full font-semibold shadow"
+            >
+              ⏹ Stop Recording
+            </button>
+          ) : (
+            <button
+              onClick={startRecording}
+              className="bg-green-600 hover:bg-green-700 transition px-6 py-2 rounded-full font-semibold shadow"
+            >
+              🎙️ Start Recording
+            </button>
+          )}
+
+          <button
+            onClick={clearTranscript}
+            className="bg-yellow-600 hover:bg-yellow-700 transition px-6 py-2 rounded-full font-semibold shadow"
+          >
+            🧹 Clear Transcript
+          </button>
+        </div>
+      )}
+
       {/* Transcript */}
-      <div className="bg-white/10 backdrop-blur-md p-6 rounded-xl border border-white/20 shadow-md mb-6">
+      {/* <div className="bg-white/10 backdrop-blur-md p-6 rounded-xl border border-white/20 shadow-md mb-6">
         <h2 className="text-2xl font-bold mb-2">📝 Transcript</h2>
         <div className="text-gray-200 whitespace-pre-wrap break-words h-40 overflow-y-auto">
           {transcript}
@@ -557,6 +669,39 @@ const App = () => {
           )}
           <div ref={transcriptEndRef} />
         </div>
+      </div> */}
+
+
+      {/* Prompt Box */}
+      <div className="bg-white/10 backdrop-blur-md p-6 rounded-xl border border-white/20 shadow-md mb-6">
+        <h2 className="text-2xl font-bold mb-2">📝 Prompt</h2>
+        <textarea className="text-gray-200 whitespace-pre-wrap break-words min-h-fit h-200 max-h-400 w-full overflow-y-auto" onChange={((e) => { setEditingPrompt(e.target.value) })} value={editingPrompt} />
+        <div className='text-red-500 text-3xl'>
+          Function Available to use
+          <div className='flex justify-between text-xl items-center'>
+            {
+              availableFunction.map((func,index) => {
+                // console.log("function",index)
+                // let fun = `${func}`
+                return (
+                  <div key={index} className='p-2'>
+                    <input
+                      type="checkbox"
+                      value={index}
+                      name="funcs"
+                      className='m-2 w-5'
+                      onChange={handleFunctionInput}
+                      checked={selectedFunction.includes(availableFunction[index])}
+                    />
+                    {func.name}
+                  </div>
+                )
+              })
+            }
+          </div>
+        </div>
+
+        <button onClick={handlePromptSave} className='w-30 h-8 bg-blue-600 text-white rounded-2xl mt-10 p-1'>EditingPrompt</button>
       </div>
 
       {/* Chat Section */}
@@ -587,7 +732,7 @@ const App = () => {
           </button>
         </form>
       </div>
-    </div>
+    </div >
   );
 };
 

@@ -446,7 +446,7 @@ If you need specific store data (like product lists, order details, or customer 
 After receiving tool results, use them to generate a helpful, concise, and accurate response for the user.
 Always return your answer in JSON format with two fields:
 "response": your textual reply for the user
-"output_channel": the medium for your response (currently, only audio is available)
+"output_channel": the medium for your response
 
 Example Output:
 {
@@ -470,7 +470,7 @@ getOrderById: Get details for a specific order by its ID.
 Instructions:
 If a user's request requires store data, call the relevant tool first, then use its result in your reply.
 If the user asks a general question or your response does not require real-time store data, answer directly.
-Always use the user's input_channel for your response if it matches the available output channels (currently, only "audio").
+Always use the user's input_channel for your response if it matches the available output channels.
 The store name is "Gautam Garment"—refer to it by name in your responses when appropriate.`,
             metrics: { llm: 0, stt: 0, tts: 0 },
 
@@ -482,6 +482,7 @@ The store name is "Gautam Garment"—refer to it by name in your responses when 
             isVadSpeechActive: false,
             currentUserUtterance: '', // VAD's internal speech detection status
             isTalking: false,
+            tools: []
         };
         this.sessions.set(sessionId, session);
         console.log(`Session ${sessionId}: Created new session.`);
@@ -686,11 +687,14 @@ const aiProcessing = {
         // On subsequent turns, set previous_response_id to maintain context.
 
 
+        console.log("here are the sessions details :", session.prompt, session.tools)
+
+
         const createResponseParams = {
             model: "gpt-4o-mini", // required
             input: input.message, // required
             instructions: session.prompt,
-            tools: toolDefinitions
+            tools: session.tools
         };
         if (session.lastResponseId) {
             createResponseParams.previous_response_id = session.lastResponseId;
@@ -755,7 +759,7 @@ const aiProcessing = {
         } catch (error) {
             return {
                 processedText: assistantMessage.content[0].text || "Sorry, I had trouble understanding. Could you please rephrase?",
-                outputType: 'audio'
+                outputType: session.availableChannel[0]
             };
         }
     },
@@ -771,16 +775,17 @@ const aiProcessing = {
         const startTime = Date.now();
 
         try {
-            // console.log(process.env.GABBER_USAGETOKEN)
+            console.log(process.env.GABBER_USAGETOKEN)
             const response = await fetch('https://api.gabber.dev/v1/voice/generate', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${process.env.GABBER_USAGETOKEN}`,
+                    // 'Authorization': `Bearer ${process.env.GABBER_USAGETOKEN}`,
+                    'Authorization': `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NTA5MzM3OTUsImh1bWFuIjoic3RyaW5nIiwicHJvamVjdCI6IjkzYTUyY2Y4LTNmYTQtNDhjYi1hYTMyLWJiMzkxNDQxZTI4NSJ9.JmDmRWLRgpDEljwwjnAlJtyumahM_KRYmwpp7OT9p5w`,
                 },
                 body: JSON.stringify({
                     text,
-                    voice_id: process.env.GABBER_VOICEID_FEMALE,
+                    voice_id: process.env.GABBER_VOICEID_MALE,
                 })
             });
 
@@ -807,6 +812,36 @@ const aiProcessing = {
     }
 
 };
+
+const setChannel = (session, channel) => {
+    if (!session.availableChannel.includes(channel)) {
+        session.availableChannel.push(channel);
+        let prompt = `${session.prompt}
+        Available channels:
+        ${session.availableChannel.join(",")}
+        `
+        session.prompt = prompt
+
+    }
+    // console.log(session.availableChannel)
+}
+
+const changePrompt = (session, prompt, tools, ws) => {
+    let prompt = `${prompt}
+        Available channels:
+        ${session.availableChannel.join(",")}
+        `
+    session.prompt = prompt;
+    session.tools = tools
+
+    ws.send(JSON.stringify({
+        type: "current_prompt",
+        streamSid: session.streamSid,
+        prompt: session.prompt,
+        functions: toolDefinitions
+    }))
+    // console.log(session.prompt, session.tools)
+}
 
 // Initialize WebSocket Server
 const wss = new WebSocket.Server({ port: 5001 });
@@ -842,12 +877,12 @@ wss.on('connection', (ws, req) => {
         // 2. Reset the utterance buffer for the next turn
         session.currentUserUtterance = '';
 
-        // // 3. Send final transcript to client for display (optional, but good practice)
-        // ws.send(JSON.stringify({
-        //     type: 'final_transcript',
-        //     transcript: finalTranscript,
-        //     isFinal: true
-        // }));
+        // 3. Send final transcript to client for display (optional, but good practice)
+        ws.send(JSON.stringify({
+            type: 'final_transcript',
+            transcript: finalTranscript,
+            isFinal: true
+        }));
 
         try {
             // 4. Get the AI's response
@@ -875,8 +910,10 @@ wss.on('connection', (ws, req) => {
             } else {
                 // Handle text output
                 ws.send(JSON.stringify({
-                    type: 'ai_response_text',
-                    text: processedText,
+                    event: 'media',
+                    type: 'text_response',
+                    media: { payload: processedText },
+                    latency: session.metrics
                 }));
                 session.isAIResponding = false;
             }
@@ -886,7 +923,6 @@ wss.on('connection', (ws, req) => {
             session.isAIResponding = false;
         }
     }
-
 
     // REFACTORED: Your connectToDeepgram function with turn detection integrated.
     const connectToDeepgram = (currentSession) => { // Pass 'ws' as an argument
@@ -914,6 +950,12 @@ wss.on('connection', (ws, req) => {
                 const transcript = received.channel?.alternatives?.[0]?.transcript;
 
                 if (!transcript) return;
+
+                if (currentSession.isAIResponding && (Date.now() - currentSession.lastInterruptionTime > currentSession.interruptionCooldown)) {
+                    console.log(`Session ${currentSession.id}: VAD detected speech during AI response. Initiating interruption.`);
+                    handleInterruption(currentSession);
+                    currentSession.lastInterruptionTime = Date.now();
+                }
 
                 // --- THIS IS THE CORE LOGIC CHANGE ---
                 if (received.is_final) {
@@ -1068,6 +1110,12 @@ wss.on('connection', (ws, req) => {
                 session.caller = parsedData.start?.customParameters?.caller;
                 // console.log(session.caller);
                 console.log(`Session ${sessionId}: Twilio stream started for CallSid: ${session.callSid}`);
+                ws.send(JSON.stringify({
+                    type: "current_prompt",
+                    streamSid: sessionId,
+                    prompt: session.prompt,
+                    functions: toolDefinitions
+                }))
                 // console.log(parsedData.caller);
 
                 // Initialize per-session FFmpeg and VAD processes
@@ -1094,7 +1142,6 @@ wss.on('connection', (ws, req) => {
                     // console.log("getting audio")
                     try {
                         const parsedVAD = JSON.parse(vadData.toString());
-
                         if (parsedVAD.event === 'speech_start') {
                             session.isVadSpeechActive = true;
                             console.log(`Session ${session.id}: VAD detected Speech START. Resetting Deepgram buffer.`);
@@ -1115,14 +1162,9 @@ wss.on('connection', (ws, req) => {
                         }
 
                         if (parsedVAD.chunk) {
+                            console.log("got the speech")
                             const audioBuffer = Buffer.from(parsedVAD.chunk, 'hex');
                             session.vadDeepgramBuffer = Buffer.concat([session.vadDeepgramBuffer, audioBuffer]);
-                            if (session.isAIResponding && (Date.now() - session.lastInterruptionTime > session.interruptionCooldown)) {
-                                console.log(`Session ${session.id}: VAD detected speech during AI response. Initiating interruption.`);
-                                handleInterruption(session);
-                                session.lastInterruptionTime = Date.now();
-                            }
-
                             // The key is to send frequently, not wait for a large chunk.
                             if (session.isVadSpeechActive && session.dgSocket?.readyState === WebSocket.OPEN) {
                                 while (session.vadDeepgramBuffer.length >= CONFIG.DEEPGRAM_STREAM_CHUNK_SIZE) {
@@ -1181,7 +1223,6 @@ wss.on('connection', (ws, req) => {
 
             } else if (parsedData.event === 'media' && parsedData.media?.payload) {
 
-
                 // console.log('mediaEvent : ',parsedData);
                 // Ensure session exists and ffmpeg is ready to receive audio
                 if (parsedData.type === 'chat') {
@@ -1190,15 +1231,22 @@ wss.on('connection', (ws, req) => {
                         return;
                     }
                     if (!session.availableChannel.includes("chat")) {
-                        session.availableChannel.push("chat")
-                    }
-                    const { processedText, outputType } = await aiProcessing.processInput(parsedData.chat.message, session);
+                        setChannel(session, "chat")
 
-                    if (outputType === 'text') {
+                    }
+                    console.log(session.availableChannel)
+                    console.log("chat recieved")
+                    const { processedText, outputType } = await aiProcessing.processInput(
+                        { message: parsedData.media.payload, input_channel: 'chat' },
+                        session
+                    );
+                    console.log(processedText, outputType)
+
+                    if (outputType === 'chat') {
                         ws.send(JSON.stringify({
+                            event: 'media',
                             type: 'text_response',
-                            text: processedText,
-                            isFinal: true,
+                            media: { payload: processedText },
                             latency: session.metrics
                         }));
                     } else if (outputType === 'audio') {
@@ -1214,7 +1262,7 @@ wss.on('connection', (ws, req) => {
                 else if (session && session.ffmpegProcess && session.ffmpegProcess.stdin.writable) {
                     // console.log("event called")
                     if (!session.availableChannel.includes("audio")) {
-                        session.availableChannel.push("audio")
+                        setChannel(session, "audio")
                     }
                     const audioBuffer = Buffer.from(parsedData.media.payload, 'base64');
                     // console.log(`Session ${session.id}: Writing ${audioBuffer.length} bytes to FFmpeg`);
@@ -1222,6 +1270,10 @@ wss.on('connection', (ws, req) => {
                 } else {
                     // console.warn(`Session ${sessionId}: Media received but ffmpeg not ready or session not found.`);
                 }
+            } else if (parsedData.event === 'change_prompt') {
+                console.log('session', session.streamSid)
+                console.log('prompt', parsedData.prompt)
+                changePrompt(session, parsedData.prompt, parsedData.tools)
             }
             // Add other event types if necessary (e.g., 'stop', 'mark')
         } catch (err) {
