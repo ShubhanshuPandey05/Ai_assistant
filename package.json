@@ -17,6 +17,7 @@
     "@grpc/grpc-js": "^1.13.4",
     "@grpc/proto-loader": "^0.7.15",
     "@huggingface/transformers": "^3.5.1",
+    "@livekit/noise-cancellation-node": "^0.1.8",
     "@signalwire/compatibility-api": "^3.1.4",
     "axios": "^1.9.0",
     "body-parser": "^2.2.0",

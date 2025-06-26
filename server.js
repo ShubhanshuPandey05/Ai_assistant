@@ -5,13 +5,13 @@ require('dotenv').config(); // Make sure your .env file has all the necessary ke
 const { PollyClient, SynthesizeSpeechCommand } = require("@aws-sdk/client-polly");
 const OpenAI = require("openai");
 const twilio = require('twilio'); // This might not be directly used in the WebSocket server, but kept for consistency
-
-
 const SHOPIFY_STORE_URL = process.env.SHOPIFY_STORE_URL;
 const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
 const graphqlEndpoint = `https://${SHOPIFY_STORE_URL}/admin/api/2023-01/graphql.json`;
 const grpc = require('@grpc/grpc-js');
 const protoLoader = require('@grpc/proto-loader');
+// const { NoiseCancellation } = require('@livekit/noise-cancellation-node')
+const { Transform } = require('stream');
 
 const PROTO_PATH = './turn.proto';
 
@@ -29,6 +29,11 @@ const turnDetector = new turnProto.TurnDetector(
     'localhost:50051',
     grpc.credentials.createInsecure()
 );
+
+const FRAME_SMP = 480;
+const FRAME_BYTES = FRAME_SMP * 2;
+
+
 
 const toolDefinitions = [
     {
@@ -356,7 +361,8 @@ const CONFIG = {
     POLLY_OUTPUT_FORMAT: "mp3",
     GPT_MODEL: "gpt-4o-mini",
     GPT_MAX_TOKENS: 150,
-    GPT_TEMPERATURE: 0.1
+    GPT_TEMPERATURE: 0.1,
+    DENOISER_RATE: 48000,
 };
 
 // Performance Monitoring (Global, as it aggregates stats from all sessions)
@@ -482,7 +488,9 @@ The store name is "Gautam Garment"—refer to it by name in your responses when 
             isVadSpeechActive: false,
             currentUserUtterance: '', // VAD's internal speech detection status
             isTalking: false,
-            tools: []
+            tools: [],
+            denoiser: null,
+            remainder: null
         };
         this.sessions.set(sessionId, session);
         console.log(`Session ${sessionId}: Created new session.`);
@@ -764,8 +772,6 @@ const aiProcessing = {
         }
     },
 
-
-
     async synthesizeSpeech(text, sessionId) {
         if (!text) {
             console.error(`Session ${sessionId}: No text provided for synthesis.`);
@@ -775,13 +781,12 @@ const aiProcessing = {
         const startTime = Date.now();
 
         try {
-            console.log(process.env.GABBER_USAGETOKEN)
+            // console.log(process.env.GABBER_USAGETOKEN)
             const response = await fetch('https://api.gabber.dev/v1/voice/generate', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    // 'Authorization': `Bearer ${process.env.GABBER_USAGETOKEN}`,
-                    'Authorization': `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NTA5MzM3OTUsImh1bWFuIjoic3RyaW5nIiwicHJvamVjdCI6IjkzYTUyY2Y4LTNmYTQtNDhjYi1hYTMyLWJiMzkxNDQxZTI4NSJ9.JmDmRWLRgpDEljwwjnAlJtyumahM_KRYmwpp7OT9p5w`,
+                    'Authorization': `Bearer ${process.env.GABBER_USAGETOKEN}`,
                 },
                 body: JSON.stringify({
                     text,
@@ -809,7 +814,34 @@ const aiProcessing = {
             console.error(`Session ${sessionId}: Speech synthesis error with Gabber:`, decoded || err.message);
             throw err;
         }
-    }
+    },
+
+    // async synthesizeSpeech(text, sessionId) {
+    //     if (!text) {
+    //         console.error(`Session ${sessionId}: No text provided for synthesis.`);
+    //         return null;
+    //     }
+    //     const startTime = Date.now();
+    //     try {
+    //         const command = new SynthesizeSpeechCommand({
+    //             Text: text,
+    //             VoiceId: CONFIG.POLLY_VOICE_ID,
+    //             OutputFormat: CONFIG.POLLY_OUTPUT_FORMAT
+    //         });
+
+    //         const data = await services.polly.send(command);
+    //         if (data.AudioStream) {
+    //             const audioBuffer = Buffer.from(await data.AudioStream.transformToByteArray());
+    //             const latency = Date.now() - startTime;
+    //             console.log(`Session ${sessionId}: TTS Latency: ${latency}ms`);
+    //             return audioBuffer;
+    //         }
+    //         throw new Error("AudioStream not found in Polly response.");
+    //     } catch (err) {
+    //         console.error(`Session ${sessionId}: Speech synthesis error with Polly:`, err);
+    //         throw err;
+    //     }
+    // }
 
 };
 
@@ -842,6 +874,29 @@ const changePrompt = (session, prompt, tools, ws) => {
     }))
     // console.log(session.prompt, session.tools)
 }
+
+// const buildDenoiseTransform = (session) => new Transform({
+//     transform(chunk, _, cb) {
+//         chunk = Buffer.concat([session.remainder, chunk]);
+//         const cleaned = [];
+//         while (chunk.length >= FRAME_BYTES) {
+//             const frame = chunk.subarray(0, FRAME_BYTES);
+//             chunk = chunk.subarray(FRAME_BYTES);
+//             cleaned.push(session.denoiser.process(frame));
+//         }
+//         session.remainder = chunk;
+//         this.push(Buffer.concat(cleaned));
+//         cb();
+//     },
+//     flush(cb) {
+//         if (session.remainder.length) {
+//             const padded = Buffer.alloc(FRAME_BYTES);
+//             session.remainder.copy(padded);
+//             this.push(session.denoiser.process(padded));
+//         }
+//         cb();
+//     }
+// });
 
 // Initialize WebSocket Server
 const wss = new WebSocket.Server({ port: 5001 });
@@ -1132,10 +1187,61 @@ wss.on('connection', (ws, req) => {
                     'pipe:1' // Output to stdout
                 ]);
 
+
+                // session.ffmpegProcess = spawn('ffmpeg', [
+                //     '-loglevel', 'quiet',
+                //     '-f', 'mulaw',
+                //     '-ar', CONFIG.AUDIO_SAMPLE_RATE.toString(),
+                //     '-ac', '1',
+                //     '-i', 'pipe:0',
+                //     '-f', 's16le',
+                //     '-acodec', 'pcm_s16le',
+                //     '-ar', CONFIG.DENOISER_RATE.toString(),   // 48 000 Hz for RNNoise
+                //     '-ac', '1',
+                //     'pipe:1',
+                // ]);
+
                 // console.log("ffmpeg initiated")
+
+                // session.denoiser = NoiseCancellation();
+                // console.log(session.denoiser)
+                // session.remainder = Buffer.alloc(0); // Store partial frame chunks
+
+
+
+                // const denoiseStream = new Transform({
+                //     transform(chunk, _enc, cb) {
+                //         // Combine leftover and new chunk
+                //         chunk = Buffer.concat([session.remainder, chunk]);
+
+                //         const cleaned = [];
+                //         while (chunk.length >= 960) { // 480 samples = 960 bytes
+                //             const frame = chunk.subarray(0, 960);
+                //             chunk = chunk.subarray(960);
+                //             cleaned.push(session.denoiser.process(frame)); // Denoise!
+                //         }
+
+                //         session.remainder = chunk; // Store any remaining < 960 bytes
+                //         this.push(Buffer.concat(cleaned)); // Push clean PCM
+                //         cb();
+                //     },
+                //     flush(cb) {
+                //         // Pad and process remaining audio
+                //         if (session.remainder.length) {
+                //             const padded = Buffer.alloc(960);
+                //             session.remainder.copy(padded);
+                //             this.push(session.denoiser.process(padded));
+                //         }
+                //         cb();
+                //     }
+                // });
 
                 session.vadProcess = spawn(process.env.PYTHON_PATH || 'python3', ['vad.py']); // Use env var for Python path
                 session.ffmpegProcess.stdout.pipe(session.vadProcess.stdin); // Pipe FFmpeg output to VAD input
+                // session.ffmpegProcess.stdout
+                //     .pipe(denoiseStream) // Clean 48k Int16 PCM
+                //     .pipe(session.vadProcess.stdin);
+
 
                 // Attach VAD listener specific to this session
                 session.vadProcess.stdout.on('data', (vadData) => {
