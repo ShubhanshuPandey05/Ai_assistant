@@ -1448,7 +1448,7 @@ const express = require('express');
 const cors = require('cors');
 
 // const { Room, RoomEvent, RemoteAudioTrack, TrackSource } = require('@livekit/rtc-node');
-const { AccessToken } = require('livekit-server-sdk');
+const { AccessToken, EgressClient } = require('livekit-server-sdk');
 
 // Adjust path as needed
 
@@ -1472,7 +1472,14 @@ async function createAIRoomConnection(roomName, apiKey, apiSecret) {
             canSubscribe: true
         });
 
-        const aiTokenJwt = aiToken.toJwt();
+        let aiTokenJwt = null;
+        try {
+            aiTokenJwt = aiToken.toJwt();
+            console.log("AI token: ", aiTokenJwt);
+        } catch (error) {
+            console.error("Error in generating token: ", error.message)
+        }
+        
         const aiRoom = new Room();
 
         // Add connection event handlers BEFORE connecting
@@ -1509,34 +1516,23 @@ async function createAIRoomConnection(roomName, apiKey, apiSecret) {
         setupRoomEventHandlers(aiRoom, roomName);
 
         // Connect to room
-        const wsUrl = process.env.LIVEKIT_URL || process.env.LIVEKIT_WS_URL;
+        const wsUrl = process.env.LIVEKIT_URL;
+        console.log("WS URL: ", wsUrl);
+        
         if (!wsUrl) {
             throw new Error('LIVEKIT_URL or LIVEKIT_WS_URL not configured');
         }
 
         await aiRoom.connect(wsUrl, aiTokenJwt);
 
-        // Start audio recording via Egress
-        let egressInfo = null;
-        try {
-            egressInfo = await egressService.startAudioRecording(roomName);
-            console.log(`🎵 Audio recording started for room: ${roomName}`);
-        } catch (egressError) {
-            console.warn(`⚠️ Failed to start audio recording:`, egressError.message);
-            console.log(`ℹ️ Continuing without audio recording for room: ${roomName}`);
-        }
-
         // Store the room connection
         aiRooms.set(roomName, {
             room: aiRoom,
             sessionId: aiSessionId,
-            egressId: egressInfo?.egressId,
-            recordingId: egressInfo?.recordingId,
-            filePath: egressInfo?.filePath,
             connectedAt: new Date()
         });
 
-        return { aiRoom, aiSessionId, egressId: egressInfo?.egressId };
+        return { aiRoom, aiSessionId };
 
     } catch (error) {
         console.error('❌ Error creating AI room connection:', error);
@@ -1587,6 +1583,7 @@ function handleIncomingTrack(track, publication, participant, roomName) {
         
         // Since we're using Egress for audio capture, we don't need to process tracks directly
         // Egress will capture all audio and send it to our processing pipeline
+        processRemoteAudioTrack(track, participant, roomName)
         
     } else if (trackKind === 'video' || track.kind === 2) {
         console.log('📹 Processing video from:', participant.identity);
@@ -1607,6 +1604,10 @@ function processRemoteAudioTrack(track, participant, roomName) {
         if (track.info) {
             console.log('✅ Found track info:', track.info);
         }
+        track.onData((data) => {
+            console.log(`🎵 Received audio data from ${participant.identity}:`, data.length, 'bytes');
+            processRawAudioData(data, participant, roomName);
+        });
 
         // Method 2: Try to set up audio data listener using FFI methods
         if (track.ffi_handle) {
@@ -1766,42 +1767,70 @@ function processAudioStream(mediaStream, participant, roomName) {
     }
 }
 
-// Fixed room event handlers
-function setupRoomEventHandlers(aiRoom, roomName) {
-    aiRoom.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
-        console.log(`🎵 Track subscribed from ${participant.identity}`);
-        console.log(`📋 Publication details:`, {
-            kind: publication.kind,
-            source: publication.source,
-            subscribed: publication.isSubscribed,
-            enabled: publication.enabled
-        });
+const egressClient = new EgressClient(process.env.LIVEKIT_URL, process.env.LIVEKIT_API_KEY, process.envLIVEKIT_API_SECRET);
 
-        // Enable audio data collection for audio tracks
+// Fixed room event handlers
+const {
+    startEgressTranscription,
+    stopEgressTranscription,
+    setupEgressServer
+} = require('./egressModule'); 
+
+const participantEgressMap = new Map(); // To track which participant has which egressId
+
+function setupRoomEventHandlers(aiRoom, roomName, handleIncomingTrack) {
+    aiRoom.on(RoomEvent.TrackSubscribed, async (track, publication, participant) => {
         if (track.kind === 1 || track.kind === 'audio') {
             console.log('🎵 Audio track subscribed - Egress will handle audio capture');
+            console.log(`🚀 Starting egress for trackId: ${track.sid}, roomName: ${roomName}`);
+
+            try {
+                setupEgressServer();
+                const egressId = await startEgressTranscription(track.sid, roomName);
+                participantEgressMap.set(participant.identity, egressId);
+                console.log(`🎙️ Egress ID for ${participant.identity}: ${egressId}`);
+            } catch (e) {
+                console.error('❌ Error starting LiveKit Egress:', e);
+            }
         }
 
-        // Use the fixed handler
-        handleIncomingTrack(track, publication, participant, roomName);
+        if (typeof handleIncomingTrack === 'function') {
+            handleIncomingTrack(track, publication, participant, roomName);
+        }
     });
 
     aiRoom.on(RoomEvent.TrackPublished, async (publication, participant) => {
-        console.log(`📢 Track published: ${publication.kind} by ${participant.identity}`);
-
-        // Auto-subscribe to audio tracks with error handling
         if ((publication.kind === 'audio' || publication.kind === 1) && !publication.isSubscribed) {
             try {
                 console.log(`🔄 Auto-subscribing to audio from ${participant.identity}`);
                 await publication.setSubscribed(true);
-                console.log(`✅ Successfully subscribed to audio from ${participant.identity}`);
-            } catch (subscribeError) {
-                console.error(`❌ Failed to subscribe to audio from ${participant.identity}:`, subscribeError);
+                console.log(`✅ Subscribed to audio from ${participant.identity}`);
+            } catch (e) {
+                console.error(`❌ Failed to subscribe to audio from ${participant.identity}:`, e);
             }
         }
     });
 
-    // Add more robust error handling
+    aiRoom.on(RoomEvent.ParticipantDisconnected, async (participant) => {
+        console.log('👤 Participant disconnected:', participant.identity);
+
+        const egressId = participantEgressMap.get(participant.identity);
+        if (egressId) {
+            try {
+                await stopEgressTranscription(egressId);
+                console.log(`🔌 Egress stopped for ${participant.identity}`);
+            } catch (e) {
+                console.error('❌ Error stopping egress:', e);
+            }
+            participantEgressMap.delete(participant.identity);
+        }
+
+        if (audioBuffers.has(participant.identity)) {
+            audioBuffers.delete(participant.identity);
+            console.log(`🧹 Cleaned up audio buffer for ${participant.identity}`);
+        }
+    });
+
     aiRoom.on(RoomEvent.ConnectionQualityChanged, (quality, participant) => {
         if (quality === 'poor') {
             console.warn(`⚠️ Poor connection quality for ${participant?.identity || 'local'}`);
@@ -1809,23 +1838,14 @@ function setupRoomEventHandlers(aiRoom, roomName) {
     });
 
     aiRoom.on(RoomEvent.Reconnecting, () => {
-        console.log('🔄 AI agent reconnecting due to connection issues...');
+        console.log('🔄 AI agent reconnecting...');
     });
 
     aiRoom.on(RoomEvent.Reconnected, () => {
-        console.log('✅ AI agent reconnected successfully');
-    });
-
-    aiRoom.on(RoomEvent.ParticipantDisconnected, (participant) => {
-        console.log('👤 Participant disconnected:', participant.identity);
-        
-        // Clean up audio buffer for this participant
-        if (audioBuffers.has(participant.identity)) {
-            audioBuffers.delete(participant.identity);
-            console.log(`🧹 Cleaned up audio buffer for ${participant.identity}`);
-        }
+        console.log('✅ AI agent reconnected');
     });
 }
+
 
 // Audio processing setup (implement based on your needs)
 function setupAudioProcessing(mediaStream, participant, roomName) {
@@ -2016,8 +2036,8 @@ async function publishAudioToRoomStreaming(roomName, mp3Buffer) {
                 // Unpublish after delay
                 setTimeout(() => {
                     try {
-                        room.localParticipant.unpublishTrack(track);
-                        console.log(`🔇 Streaming completed and track unpublished`);
+                        // room.localParticipant.unpublishTrack(track);
+                        // console.log(`🔇 Streaming completed and track unpublished`);
                     } catch (error) {
                         console.error('❌ Error unpublishing streaming track:', error);
                     }
@@ -2037,7 +2057,7 @@ async function publishAudioToRoomStreaming(roomName, mp3Buffer) {
                     clearInterval(streamInterval);
                 }
             }
-        }, 30); // 30ms intervals
+        }, 30);
 
         return true;
 

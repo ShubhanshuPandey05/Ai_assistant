@@ -1,7 +1,6 @@
 # LiveKit Configuration - Copy these to your .env file
-LIVEKIT_API_KEY=your_api_key_here
-LIVEKIT_API_SECRET=your_api_secret_here
-LIVEKIT_WS_URL=wss://your-livekit-server.com
-
+LIVEKIT_URL=wss://webrtc-agent-qllsubgf.livekit.cloud
+LIVEKIT_API_KEY=APIzKZRxx5JobkB
+LIVEKIT_API_SECRET=rXQiA5hmKn6NmUdjRY6v2Gxe1gSuxntxtBlSURW24XY
 # Server Configuration
 PORT=3001 
