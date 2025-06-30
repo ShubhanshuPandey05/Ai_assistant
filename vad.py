@@ -111,9 +111,9 @@ model, utils = torch.hub.load('snakers4/silero-vad', model='silero_vad', trust_r
 
 # Constants
 sample_rate = 16000
-min_chunk_samples = sample_rate // 4  # 0.5 seconds = 8000 samples
+min_chunk_samples = sample_rate // 4  # 0.5 seconds = 4000 samples
 frame_bytes = min_chunk_samples * 4  # 16-bit PCM = 2 bytes per sample
-threshold = 0.6
+threshold = 0.5
 prefix_duration = 0.1  # 200ms
 prefix_samples = int(sample_rate * prefix_duration)
 prefix_buffer = deque(maxlen=prefix_samples)

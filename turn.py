@@ -84,7 +84,7 @@ class ConversationTurnDetector:
         truncated_messages = messages[-self.MAX_HISTORY:]
         text_input = self._convert_messages_to_chatml(truncated_messages)
 
-        print(f"EOT Input: '...{text_input}'")
+        # print(f"EOT Input: '...{text_input}'")
         top_logprobs = self.get_next_token_logprobs(text_input)
         eot_prob, _ = self.process_result(top_logprobs)
         print(f"EOT Probability: {eot_prob:.4f}")

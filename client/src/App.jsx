@@ -1,755 +1,147 @@
-
 import { useEffect, useRef, useState } from 'react';
+import { Room, RoomEvent, DataPacket_Kind, RemoteParticipant, RemoteTrackPublication, RemoteAudioTrack } from 'livekit-client';
+
+const SERVER_URL = 'http://localhost:5001';
 
 const App = () => {
-  const [recording, setRecording] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
-  const [sessionId, setSessionId] = useState(null);
-  const [transcript, setTranscript] = useState('');
-  const [interimTranscript, setInterimTranscript] = useState('');
-  const [error, setError] = useState(null);
-  const [audioLevel, setAudioLevel] = useState(0);
-  const [currentPrompt, setCurrentPrompt] = useState('');
-  const [editingPrompt, setEditingPrompt] = useState('');
-  const [isPromptEditing, setIsPromptEditing] = useState(false);
-  const [availableFunction, setAvailableFunction] = useState([
-    {
-        type: "function",
-        name: "getAllProducts",
-        description: "Get a list of all products in the store.",
-        parameters: {
-            type: "object",
-            properties: {},
-            required: []
-        }
-    },
-    {
-        type: "function",
-        name: "getUserDetailsByPhoneNo",
-        description: "Get customer details",
-        parameters: {
-            type: "object",
-            properties: {},
-            required: []
-        }
-    },
-    {
-        type: "function",
-        name: "getAllOrders",
-        description: "Get a list of all orders.",
-        parameters: {
-            type: "object",
-            properties: {},
-            required: []
-        }
-    },
-    {
-        type: "function",
-        name: "getOrderById",
-        description: "Get details for a specific order by its ID.",
-        parameters: {
-            type: "object",
-            properties: {
-                orderId: { type: "string", description: "The Shopify order ID." }
-            },
-            required: ["orderId"]
-        }
-    }
-]);
-  const [selectedFunction, setSelectedFunction] = useState([]);
-  const wsRef = useRef(null);
-  const audioContextRef = useRef(null);
-  const analyserRef = useRef(null);
-  const animationFrameRef = useRef(null);
-  const transcriptEndRef = useRef(null);
-  const audioQueueRef = useRef([]);
-  const isPlayingRef = useRef(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const lastInterimTimeRef = useRef(0);
-  const INTERIM_THRESHOLD = 500;
+  const [roomName, setRoomName] = useState('');
+  const [token, setToken] = useState('');
+  const [room, setRoom] = useState(null);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
-  const [latency, setLatency] = useState({
-    llm: 0,
-    stt: 0,
-    tts: 0
-  });
+  const [error, setError] = useState(null);
+  const [isMicOn, setIsMicOn] = useState(false);
+  const audioRef = useRef(null);
 
-  // Audio processing refs for μ-law
-  const sourceRef = useRef(null);
-  const processorRef = useRef(null);
-  const streamRef = useRef(null);
-  const audioBufferRef = useRef([]);
-
-  // Audio constants
-  const SAMPLE_RATE = 44100;
-  const TARGET_SAMPLE_RATE = 8000;
-  const BUFFER_SIZE = 512;
-  const CHUNK_SIZE = 400; // 50ms at 8kHz
-
-  // μ-law encoding table
-  const muLawCompressTable = new Uint8Array([
-    0, 0, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
-    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
-    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
-    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
-    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
-    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
-    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
-    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7
-  ]);
-
-  // μ-law decoding table
-  const muLawDecompressTable = new Int16Array([
-    -32124, -31100, -30076, -29052, -28028, -27004, -25980, -24956,
-    -23932, -22908, -21884, -20860, -19836, -18812, -17788, -16764,
-    -15996, -15484, -14972, -14460, -13948, -13436, -12924, -12412,
-    -11900, -11388, -10876, -10364, -9852, -9340, -8828, -8316,
-    -7932, -7676, -7420, -7164, -6908, -6652, -6396, -6140,
-    -5884, -5628, -5372, -5116, -4860, -4604, -4348, -4092,
-    -3900, -3772, -3644, -3516, -3388, -3260, -3132, -3004,
-    -2876, -2748, -2620, -2492, -2364, -2236, -2108, -1980,
-    -1884, -1820, -1756, -1692, -1628, -1564, -1500, -1436,
-    -1372, -1308, -1244, -1180, -1116, -1052, -988, -924,
-    -876, -844, -812, -780, -748, -716, -684, -652,
-    -620, -588, -556, -524, -492, -460, -428, -396,
-    -372, -356, -340, -324, -308, -292, -276, -260,
-    -244, -228, -212, -196, -180, -164, -148, -132,
-    -120, -112, -104, -96, -88, -80, -72, -64,
-    -56, -48, -40, -32, -24, -16, -8, 0,
-    32124, 31100, 30076, 29052, 28028, 27004, 25980, 24956,
-    23932, 22908, 21884, 20860, 19836, 18812, 17788, 16764,
-    15996, 15484, 14972, 14460, 13948, 13436, 12924, 12412,
-    11900, 11388, 10876, 10364, 9852, 9340, 8828, 8316,
-    7932, 7676, 7420, 7164, 6908, 6652, 6396, 6140,
-    5884, 5628, 5372, 5116, 4860, 4604, 4348, 4092,
-    3900, 3772, 3644, 3516, 3388, 3260, 3132, 3004,
-    2876, 2748, 2620, 2492, 2364, 2236, 2108, 1980,
-    1884, 1820, 1756, 1692, 1628, 1564, 1500, 1436,
-    1372, 1308, 1244, 1180, 1116, 1052, 988, 924,
-    876, 844, 812, 780, 748, 716, 684, 652,
-    620, 588, 556, 524, 492, 460, 428, 396,
-    372, 356, 340, 324, 308, 292, 276, 260,
-    244, 228, 212, 196, 180, 164, 148, 132,
-    120, 112, 104, 96, 88, 80, 72, 64,
-    56, 48, 40, 32, 24, 16, 8, 0
-  ]);
-
-  // μ-law encoding function
-  const encodeMuLaw = (sample) => {
-    const sign = (sample >> 8) & 0x80;
-    if (sign !== 0) sample = -sample;
-    if (sample > 32635) sample = 32635;
-
-    sample = sample + 132;
-    let exponent = muLawCompressTable[(sample >> 7) & 0xFF] + 1;
-    let mantissa = (sample >> (exponent + 3)) & 0x0F;
-
-    return (~(sign | (exponent << 4) | mantissa)) & 0xFF;
-  };
-
-  // μ-law decoding function
-  const decodeMuLaw = (muLawByte) => {
-    return muLawDecompressTable[muLawByte];
-  };
-
-  // Downsample buffer from 44.1kHz to 8kHz
-  const downsampleBuffer = (buffer, inputSampleRate, outputSampleRate) => {
-    const sampleRateRatio = inputSampleRate / outputSampleRate;
-    const newLength = Math.round(buffer.length / sampleRateRatio);
-    const result = new Float32Array(newLength);
-
-    for (let i = 0; i < newLength; i++) {
-      const origin = Math.floor(i * sampleRateRatio);
-      result[i] = buffer[origin];
-    }
-    return result;
-  };
-
-  useEffect(() => {
-    return () => {
-      cleanup();
-    };
-  }, []);
-
-  // Auto-scroll transcript to bottom
-  useEffect(() => {
-    if (transcriptEndRef.current) {
-      transcriptEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [transcript, interimTranscript]);
-
-  const cleanup = () => {
-    // Clean up audio processing
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-    if (processorRef.current) {
-      processorRef.current.disconnect();
-      processorRef.current = null;
-    }
-    if (sourceRef.current) {
-      sourceRef.current.disconnect();
-      sourceRef.current = null;
-    }
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-    }
-    if (audioContextRef.current) {
-      audioContextRef.current.close();
-    }
-    audioBufferRef.current = [];
-  };
-
-  const cleanupConnection = () => {
-    if (wsRef.current && sessionId) {
-      wsRef.current.send(JSON.stringify({
-        type: 'stop_session',
-        sessionId: sessionId
-      }));
-      wsRef.current.close();
-    }
-    wsRef.current = null;
-  };
-
-  // Separate WebSocket connection function
-  const connectWebSocket = async () => {
+  // 1. Create room and get token
+  const handleConnect = async () => {
     try {
       setError(null);
+      // 1. Create a unique room name (or let user pick)
+      const newRoomName = 'room-' + Math.random().toString(36).substring(2, 10);
+      setRoomName(newRoomName);
+      // 2. Ask server to create room and join agent
+      await fetch(`${SERVER_URL}/create-room`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomName: newRoomName })
+      });
+      // 3. Get token for this user
+      const resp = await fetch(`${SERVER_URL}/get-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomName: newRoomName, participantName: 'user-' + Math.random().toString(36).substring(2, 8) })
+      });
+      const data = await resp.json();
+      setToken(data.token);
 
-      // Close existing connection if any
-      if (wsRef.current) {
-        cleanupConnection();
-      }
-
-      // Connect to WebSocket
-      // wsRef.current = new WebSocket('wss://call-server.shipfast.studio');
-      wsRef.current = new WebSocket('ws://localhost:5001');
-
-      wsRef.current.onopen = () => {
-        console.log('WebSocket connected, starting session...');
-
-        // Generate session ID (similar to streamSid)
-        const sid = 'MZ' + Math.random().toString(36).substr(2, 32);
-        setSessionId(sid);
-
-        // Initialize session with the server
-        wsRef.current.send(JSON.stringify({
-          event: 'start',
-          streamSid: sid,
-          type: 'start_session'
-        }));
-
-        setIsConnected(true);
-      };
-
-      wsRef.current.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          console.log('Received message:', data);
-
-          if (data.type === 'session_started') {
-            console.log('Session started with ID:', data.sessionId || sessionId);
-
-          } else if (data.type === 'current_prompt') {
-            // console.log('Current prompt received:', data.prompt);
-            // console.log(data)
-            // setAvailableFunction(data.functions)
-            setCurrentPrompt(data.prompt);
-            setEditingPrompt(data.prompt);
-
-          } else if (data.event === 'media' && data.media?.payload) {
-            console.log(data)
-            if (data.type == 'text_response') {
-              console.log('Text response:', data.media.payload);
-              setChatMessages(prev => [...prev, { role: 'assistant', content: data.media.payload }]);
-            } else {
-              // Handle μ-law audio from server
-              queueAudio(data.media.payload, false);
-            }
-
-          } else if (data.type === 'text' || data.type === 'text_response') {
-            console.log('Text response:', data.media.payload);
-            setChatMessages(prev => [...prev, { role: 'assistant', content: data.media.payload }]);
-
-          } else if (data.type === 'audio') {
-            // Handle regular base64 audio
-            const binaryString = window.atob(data.audio);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-              bytes[i] = binaryString.charCodeAt(i);
-            }
-            queueAudio(bytes.buffer, !data.isFinal);
-
-            if (data.latency) {
-              setLatency({
-                llm: data.latency.llm || 0,
-                stt: data.latency.stt || 0,
-                tts: data.latency.tts || 0
-              });
-            }
-
-          } else if (data.type === 'tts_error') {
-            console.error('TTS Error:', data.error);
-            setError('TTS Error: ' + data.error);
-
-          } else if (data.transcript) {
-            if (data.isInterim) {
-              setInterimTranscript(data.transcript);
-            } else {
-              setTranscript(prev => prev + ' ' + data.transcript);
-              setInterimTranscript('');
-            }
-
-          } else if (data.error) {
-            setError(data.error);
-            console.error('Server error:', data.error);
-          }
-
-        } catch (err) {
-          console.error('Error parsing WebSocket message:', err);
-          setError('Error parsing server response');
-        }
-      };
-
-      wsRef.current.onerror = (error) => {
-        setError('WebSocket connection error');
-        console.error('WebSocket error:', error);
-      };
-
-      wsRef.current.onclose = (event) => {
-        console.log('WebSocket closed:', event.code, event.reason);
+      const livekitRoom = new Room();
+      // 4. Connect to LiveKit room
+      await livekitRoom.connect('wss://aiagent-i9rqezpr.livekit.cloud', data.token, {
+        autoSubscribe: true
+      });
+      setRoom(livekitRoom);
+      setIsConnected(true);
+      // 5. Setup event listeners
+      livekitRoom.on(RoomEvent.DataReceived, handleDataReceived);
+      livekitRoom.on(RoomEvent.TrackSubscribed, handleTrackSubscribed);
+      livekitRoom.on(RoomEvent.Disconnected, () => {
         setIsConnected(false);
-        setSessionId(null);
-        setCurrentPrompt('');
-        setEditingPrompt('');
-      };
-
+        setRoom(null);
+      });
     } catch (err) {
       setError('Failed to connect: ' + err.message);
-      console.error('Error connecting:', err);
     }
   };
 
-  const disconnectWebSocket = () => {
-    // Stop recording if active
-    if (recording) {
-      stopRecording();
-    }
-
-    cleanupConnection();
-    setIsConnected(false);
-    setSessionId(null);
-    setCurrentPrompt('');
-    setEditingPrompt('');
-  };
-
-  const setupAudioAnalysis = (stream) => {
-    if (!audioContextRef.current) {
-      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    analyserRef.current = audioContextRef.current.createAnalyser();
-    const source = audioContextRef.current.createMediaStreamSource(stream);
-    source.connect(analyserRef.current);
-    analyserRef.current.fftSize = 256;
-
-    const updateAudioLevel = () => {
-      const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
-      analyserRef.current.getByteFrequencyData(dataArray);
-      const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
-      setAudioLevel(average);
-      animationFrameRef.current = requestAnimationFrame(updateAudioLevel);
-    };
-
-    updateAudioLevel();
-  };
-
-  const setupAudioProcessing = (stream) => {
-    streamRef.current = stream;
-
-    // Create audio context if not exists
-    if (!audioContextRef.current) {
-      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-    }
-
-    sourceRef.current = audioContextRef.current.createMediaStreamSource(stream);
-    processorRef.current = audioContextRef.current.createScriptProcessor(BUFFER_SIZE, 1, 1);
-
-    processorRef.current.onaudioprocess = (event) => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        const inputBuffer = event.inputBuffer.getChannelData(0);
-
-        // Downsample from 44100 to 8000 Hz
-        const downsampledBuffer = downsampleBuffer(inputBuffer, SAMPLE_RATE, TARGET_SAMPLE_RATE);
-
-        // Add to buffer
-        audioBufferRef.current.push(...downsampledBuffer);
-
-        // Process chunks of CHUNK_SIZE
-        while (audioBufferRef.current.length >= CHUNK_SIZE) {
-          const chunk = audioBufferRef.current.splice(0, CHUNK_SIZE);
-
-          // Convert float samples to 16-bit PCM
-          const pcmData = new Int16Array(chunk.length);
-          for (let i = 0; i < chunk.length; i++) {
-            pcmData[i] = Math.max(-32768, Math.min(32767, chunk[i] * 32768));
-          }
-
-          // Encode to μ-law
-          const muLawData = new Uint8Array(pcmData.length);
-          for (let i = 0; i < pcmData.length; i++) {
-            muLawData[i] = encodeMuLaw(pcmData[i]);
-          }
-
-          // Convert to base64
-          const base64 = btoa(String.fromCharCode.apply(null, muLawData));
-
-          // Send as media event (compatible with Twilio format)
-          wsRef.current.send(JSON.stringify({
-            event: 'media',
-            streamSid: sessionId,
-            media: {
-              payload: base64,
-              encoding: 'mulaw',
-              sampleRate: 8000,
-              channels: 1
-            }
-          }));
-        }
-      }
-    };
-
-    sourceRef.current.connect(processorRef.current);
-    processorRef.current.connect(audioContextRef.current.destination);
-  };
-
-  const playNextAudio = async () => {
-    if (audioQueueRef.current.length === 0 || isPlayingRef.current) {
-      return;
-    }
-
-    isPlayingRef.current = true;
-    const { audioData, isInterim } = audioQueueRef.current.shift();
-
-    try {
-      if (!audioContextRef.current) {
-        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
-      }
-
-      let audioBuffer;
-
-      // Check if audioData is μ-law encoded (base64 string) or regular audio data
-      if (typeof audioData === 'string') {
-        // Decode μ-law base64 to PCM
-        const binaryData = atob(audioData);
-        const muLawData = new Uint8Array(binaryData.length);
-
-        for (let i = 0; i < binaryData.length; i++) {
-          muLawData[i] = binaryData.charCodeAt(i);
-        }
-
-        // Decode μ-law to PCM
-        const pcmData = new Int16Array(muLawData.length);
-        for (let i = 0; i < muLawData.length; i++) {
-          pcmData[i] = decodeMuLaw(muLawData[i]);
-        }
-
-        // Create audio buffer
-        audioBuffer = audioContextRef.current.createBuffer(1, pcmData.length, TARGET_SAMPLE_RATE);
-        const channelData = audioBuffer.getChannelData(0);
-
-        for (let i = 0; i < pcmData.length; i++) {
-          channelData[i] = pcmData[i] / 32768.0; // Convert to float [-1, 1]
-        }
-      } else {
-        // Regular audio buffer
-        audioBuffer = await audioContextRef.current.decodeAudioData(audioData);
-      }
-
-      const source = audioContextRef.current.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(audioContextRef.current.destination);
-
-      source.onended = () => {
-        isPlayingRef.current = false;
-        setIsPlaying(false);
-        playNextAudio();
-      };
-
-      setIsPlaying(true);
-      source.start(0);
-    } catch (err) {
-      console.error('Error playing audio:', err);
-      isPlayingRef.current = false;
-      setIsPlaying(false);
-      playNextAudio();
+  // 2. Disconnect
+  const handleDisconnect = () => {
+    if (room) {
+      room.disconnect();
+      setRoom(null);
+      setIsConnected(false);
     }
   };
 
-  const queueAudio = (audioData, isInterim) => {
-    const now = Date.now();
-
-    if (isInterim && now - lastInterimTimeRef.current < INTERIM_THRESHOLD) {
-      return;
-    }
-
-    if (isInterim) {
-      lastInterimTimeRef.current = now;
-    }
-
-    audioQueueRef.current.push({ audioData, isInterim });
-    if (!isPlayingRef.current) {
-      playNextAudio();
-    }
-  };
-
+  // 3. Send chat message
   const handleChatSubmit = (e) => {
     e.preventDefault();
-    if (!chatInput.trim() || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      return;
-    }
+    if (!room || !chatInput.trim()) return;
 
-    setChatMessages(prev => [...prev, { role: 'user', content: chatInput }]);
-    console.log('Sending chat message:', chatInput);
+    // console.log(chatInput)
 
-    wsRef.current.send(JSON.stringify({
-      event: 'media',
-      type: 'chat',
-      media: {
-        payload: chatInput
+    const data = JSON.stringify({ type: 'chat', content: chatInput })
+    console.log(data)
+    room.localParticipant.sendChatMessage(
+      {
+        text : data
       }
-    }));
+    );
+    setChatMessages(prev => [...prev, { role: 'user', content: chatInput }]);
     setChatInput('');
   };
 
-  const handleChatInput = (e) => {
-    setChatInput(e.target.value);
-  };
-
-  const handlePromptEdit = () => {
-    setIsPromptEditing(true);
-  };
-
-  const handlePromptSave = () => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      setError('Not connected to server');
-      return;
-    }
-    console.log('Sending prompt change:', editingPrompt);
-    wsRef.current.send(JSON.stringify({
-      event: 'change_prompt',
-      streamSid: sessionId,
-      prompt: editingPrompt,
-      tools:selectedFunction
-    }));
-
-    setCurrentPrompt(editingPrompt);
-    setIsPromptEditing(false);
-  };
-
-  const handlePromptCancel = () => {
-    setEditingPrompt(currentPrompt);
-    setIsPromptEditing(false);
-  };
-
-  const startRecording = async () => {
-    if (!isConnected) {
-      setError('Please connect to server first');
-      return;
-    }
-
+  // 4. Receive chat message
+  const handleDataReceived = (payload, participant, kind) => {
     try {
-      setError(null);
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          sampleRate: SAMPLE_RATE,
-          channelCount: 1,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
-      });
-
-      setupAudioAnalysis(stream);
-      setupAudioProcessing(stream);
-      setRecording(true);
-
+      const msg = JSON.parse(new TextDecoder().decode(payload));
+      if (msg.type === 'chat') {
+        setChatMessages(prev => [...prev, { role: participant.identity === room.localParticipant.identity ? 'user' : 'assistant', content: msg.content }]);
+      }
+      // Handle other message types (e.g., transcript, interim, etc.)
     } catch (err) {
-      setError('Failed to access microphone: ' + err.message);
-      console.error('Error accessing microphone:', err);
+      // ignore
     }
   };
 
-  const stopRecording = () => {
-    cleanup();
-    setRecording(false);
-    setAudioLevel(0);
-    setInterimTranscript('');
+  // 5. Handle remote audio
+  const handleTrackSubscribed = (track, publication, participant) => {
+    if (track.kind === 'audio') {
+      // Play remote audio
+      track.attach(audioRef.current);
+    }
   };
 
-  const clearTranscript = () => {
-    setTranscript('');
-    setInterimTranscript('');
+  // 6. Publish mic audio
+  const handleMicToggle = async () => {
+    if (!room) return;
+    if (!isMicOn) {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      await room.localParticipant.publishTrack(stream.getAudioTracks()[0]);
+      setIsMicOn(true);
+    } else {
+      room.localParticipant.audioTracks.forEach(pub => pub.unpublish());
+      setIsMicOn(false);
+    }
   };
 
-  const handleFunctionInput = (e) => {
-    const { value, checked } = e.target;
-    // const val = availableFunction.find(value);
-    console.log(availableFunction[value]);
-    setSelectedFunction(prev =>
-      checked ? [...prev, availableFunction[value]] : prev.filter(func => func !== availableFunction[value])
-    );
-    // console.log(selectedFunction)
-  };
-
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (room) room.disconnect();
+    };
+  }, [room]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white p-6">
-      {/* Header */}
       <header className="mb-6 text-center">
-        <h1 className="text-3xl font-extrabold tracking-wide">🎙️ Voice Agent Dashboard</h1>
-        <p className="text-sm text-gray-400 mt-1">8kHz μ-law Audio Streaming</p>
-        {sessionId && (
-          <p className="text-xs text-blue-400 mt-1">Session: {sessionId}</p>
-        )}
+        <h1 className="text-3xl font-extrabold tracking-wide">🎙️ Voice Agent Dashboard (LiveKit)</h1>
+        {roomName && <p className="text-xs text-blue-400 mt-1">Room: {roomName}</p>}
       </header>
-
-      {/* Status Card */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-        <div className="bg-white/10 backdrop-blur-md p-4 rounded-xl border border-white/20 shadow-md">
-          <p className="text-sm text-gray-300">Connection</p>
-          <div className={`mt-1 text-lg font-bold ${isConnected ? 'text-green-400' : 'text-red-400'}`}>
-            {isConnected ? 'Connected' : 'Disconnected'}
-          </div>
-          <div className={`text-sm mt-1 ${recording ? 'text-green-400' : 'text-gray-400'}`}>
-            {recording ? 'Recording Active' : 'Recording Inactive'}
-          </div>
-          <div className="text-xs text-gray-400 mt-1">
-            Format: 8kHz μ-law mono
-          </div>
-          {error && <div className="mt-2 text-red-300 text-sm">{error}</div>}
-          {isPlaying && <div className="mt-2 text-blue-300 text-sm">Playing back...</div>}
-        </div>
-
-        <div className="bg-white/10 backdrop-blur-md p-4 rounded-xl border border-white/20 shadow-md">
-          <p className="text-sm text-gray-300 mb-1">Audio Level</p>
-          <div className="w-full bg-gray-600 h-3 rounded-full overflow-hidden">
-            <div
-              className={`h-full transition-all duration-500 ${recording ? 'bg-green-500' : 'bg-gray-300'}`}
-              style={{ width: `${audioLevel}%` }}
-            ></div>
-          </div>
-          <div className="text-xs text-gray-400 mt-1">
-            Chunk: 50ms ({CHUNK_SIZE} samples)
-          </div>
-        </div>
-
-        <div className="bg-white/10 backdrop-blur-md p-4 rounded-xl border border-white/20 shadow-md">
-          <p className="text-sm text-gray-300">Latency (ms)</p>
-          <div className="mt-2 space-y-1">
-            <p><span className="text-gray-400">LLM:</span> {latency.llm}</p>
-            <p><span className="text-gray-400">STT:</span> {latency.stt}</p>
-            <p><span className="text-gray-400">TTS:</span> {latency.tts}</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Connection Controls */}
       <div className="flex flex-wrap gap-4 mb-6 justify-center">
         {!isConnected ? (
-          <button
-            onClick={connectWebSocket}
-            className="bg-blue-600 hover:bg-blue-700 transition px-6 py-2 rounded-full font-semibold shadow"
-          >
-            🔌 Connect to Server
-          </button>
+          <button onClick={handleConnect} className="bg-blue-600 hover:bg-blue-700 transition px-6 py-2 rounded-full font-semibold shadow">🔌 Connect</button>
         ) : (
-          <button
-            onClick={disconnectWebSocket}
-            className="bg-red-600 hover:bg-red-700 transition px-6 py-2 rounded-full font-semibold shadow"
-          >
-            🔌 Disconnect
-          </button>
+          <button onClick={handleDisconnect} className="bg-red-600 hover:bg-red-700 transition px-6 py-2 rounded-full font-semibold shadow">🔌 Disconnect</button>
+        )}
+        {isConnected && (
+          <button onClick={handleMicToggle} className={`transition px-6 py-2 rounded-full font-semibold shadow ${isMicOn ? 'bg-yellow-600' : 'bg-green-600'}`}>{isMicOn ? '🎤 Stop Mic' : '🎤 Start Mic'}</button>
         )}
       </div>
-
-      {/* Recording Controls */}
-      {isConnected && (
-        <div className="flex flex-wrap gap-4 mb-6 justify-center">
-          {recording ? (
-            <button
-              onClick={stopRecording}
-              className="bg-red-600 hover:bg-red-700 transition px-6 py-2 rounded-full font-semibold shadow"
-            >
-              ⏹ Stop Recording
-            </button>
-          ) : (
-            <button
-              onClick={startRecording}
-              className="bg-green-600 hover:bg-green-700 transition px-6 py-2 rounded-full font-semibold shadow"
-            >
-              🎙️ Start Recording
-            </button>
-          )}
-
-          <button
-            onClick={clearTranscript}
-            className="bg-yellow-600 hover:bg-yellow-700 transition px-6 py-2 rounded-full font-semibold shadow"
-          >
-            🧹 Clear Transcript
-          </button>
-        </div>
-      )}
-
-      {/* Transcript */}
-      {/* <div className="bg-white/10 backdrop-blur-md p-6 rounded-xl border border-white/20 shadow-md mb-6">
-        <h2 className="text-2xl font-bold mb-2">📝 Transcript</h2>
-        <div className="text-gray-200 whitespace-pre-wrap break-words h-40 overflow-y-auto">
-          {transcript}
-          {interimTranscript && (
-            <span className="italic text-gray-400">{interimTranscript}</span>
-          )}
-          <div ref={transcriptEndRef} />
-        </div>
-      </div> */}
-
-
-      {/* Prompt Box */}
+      {error && <div className="text-red-300 text-sm mb-4">{error}</div>}
+      <audio ref={audioRef} autoPlay />
       <div className="bg-white/10 backdrop-blur-md p-6 rounded-xl border border-white/20 shadow-md mb-6">
-        <h2 className="text-2xl font-bold mb-2">📝 Prompt</h2>
-        <textarea className="text-gray-200 whitespace-pre-wrap break-words min-h-fit h-200 max-h-400 w-full overflow-y-auto" onChange={((e) => { setEditingPrompt(e.target.value) })} value={editingPrompt} />
-        <div className='text-red-500 text-3xl'>
-          Function Available to use
-          <div className='flex justify-between text-xl items-center'>
-            {
-              availableFunction.map((func,index) => {
-                // console.log("function",index)
-                // let fun = `${func}`
-                console.log(selectedFunction.includes(func))
-                return (
-                  <div key={index} className='p-2'>
-                    <input
-                      type="checkbox"
-                      value={index}
-                      name="funcs"
-                      className='m-2 w-5'
-                      onChange={handleFunctionInput}
-                      checked={selectedFunction.includes(func)}
-                    />
-                    {func.name}
-                  </div>
-                )
-              })
-            }
-          </div>
-        </div>
-
-        <button onClick={handlePromptSave} className='w-30 h-8 bg-blue-600 text-white rounded-2xl mt-10 p-1'>EditingPrompt</button>
-      </div>
-
-      {/* Chat Section */}
-      <div className="bg-white/10 backdrop-blur-md p-6 rounded-xl border border-white/20 shadow-md">
         <h2 className="text-2xl font-bold mb-4">💬 Chat</h2>
         <div className="h-40 bg-white/5 rounded-lg overflow-y-auto p-3 mb-4 text-sm text-gray-200 border border-white/10">
           {chatMessages.map((msg, index) => (
@@ -763,7 +155,7 @@ const App = () => {
             type="text"
             placeholder="Type your message..."
             value={chatInput}
-            onChange={handleChatInput}
+            onChange={e => setChatInput(e.target.value)}
             disabled={!isConnected}
             className="flex-1 bg-white/10 text-white placeholder-gray-400 px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:opacity-50"
           />
@@ -776,7 +168,7 @@ const App = () => {
           </button>
         </form>
       </div>
-    </div >
+    </div>
   );
 };
 
