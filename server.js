@@ -43,7 +43,6 @@ const LIVEKIT_URL = process.env.LIVEKIT_URL || 'ws://localhost:7880';
 const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || 'devkey';
 const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || 'secret';
 
-
 const roomService = new RoomServiceClient(LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
 
 const toolDefinitions = [
@@ -381,33 +380,345 @@ const performance = {
     }
 };
 
+function generateRandomIdFromData(data, length = 10) {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let randomStr = '';
+    for (let i = 0; i < length; i++) {
+        randomStr += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return `${data}-${randomStr}`;
+}
+
+// User Storage
+class UserStorage {
+    constructor() {
+        this.users = []; // In-memory storage array
+    }
+
+    // User class definition
+    static createUser(userData) {
+        return {
+            Name: userData.Name || '',
+            UserId: userData.UserId || '',
+            Phone: userData.Phone || '',
+            PastSessionId: userData.PastSessionId || [],
+            ActiveSessionId: userData.ActiveSessionId || '',
+            Email: userData.Email || ''
+        };
+    }
+
+    // Add a new user
+    addUser(userData) {
+        const user = UserStorage.createUser(userData);
+
+        // Check if user already exists (by UserId or Phone or Email)
+        if (this.findUser(user.UserId) || this.findUser(user.Phone) || this.findUser(user.Email)) {
+            throw new Error('User already exists with this UserId, Phone, or Email');
+        }
+
+        this.users.push(user);
+        return user;
+    }
+
+    // Universal selector - find user by ANY parameter
+    findUser(searchValue) {
+        if (!searchValue) return null;
+
+        return this.users.find(user => {
+            // Search through all user fields
+            return user.Name === searchValue ||
+                user.UserId === searchValue ||
+                user.Phone === searchValue ||
+                user.Email === searchValue ||
+                user.ActiveSessionId === searchValue ||
+                (Array.isArray(user.PastSessionId) && user.PastSessionId.includes(searchValue));
+        });
+    }
+
+    // Find multiple users (returns array)
+    findUsers(searchValue) {
+        if (!searchValue) return [];
+
+        return this.users.filter(user => {
+            return user.Name === searchValue ||
+                user.UserId === searchValue ||
+                user.Phone === searchValue ||
+                user.Email === searchValue ||
+                user.ActiveSessionId === searchValue ||
+                (Array.isArray(user.PastSessionId) && user.PastSessionId.includes(searchValue));
+        });
+    }
+
+    // Search with partial matching (case-insensitive)
+    searchUsers(searchTerm) {
+        if (!searchTerm) return [];
+
+        const term = searchTerm.toLowerCase();
+        return this.users.filter(user => {
+            return user.Name.toLowerCase().includes(term) ||
+                user.UserId.toLowerCase().includes(term) ||
+                user.Phone.includes(term) ||
+                user.Email.toLowerCase().includes(term) ||
+                user.ActiveSessionId.toLowerCase().includes(term);
+        });
+    }
+
+    // Update user by any identifier
+    updateUser(identifier, updates) {
+        const user = this.findUser(identifier);
+        if (!user) {
+            throw new Error('User not found');
+        }
+
+        // Update fields
+        Object.keys(updates).forEach(key => {
+            if (user.hasOwnProperty(key)) {
+                user[key] = updates[key];
+            }
+        });
+
+        return user;
+    }
+
+    // Delete user by any identifier
+    deleteUser(identifier) {
+        const index = this.users.findIndex(user => {
+            return user.Name === identifier ||
+                user.UserId === identifier ||
+                user.Phone === identifier ||
+                user.Email === identifier ||
+                user.ActiveSessionId === identifier ||
+                (Array.isArray(user.PastSessionId) && user.PastSessionId.includes(identifier));
+        });
+
+        if (index === -1) {
+            throw new Error('User not found');
+        }
+
+        return this.users.splice(index, 1)[0];
+    }
+
+    // Get all users
+    getAllUsers() {
+        return [...this.users]; // Return copy to prevent direct modification
+    }
+
+    // Convert to JSON string
+    toJSON() {
+        return JSON.stringify(this.users, null, 2);
+    }
+
+    // Load from JSON string
+    fromJSON(jsonString) {
+        try {
+            const data = JSON.parse(jsonString);
+            this.users = data.map(userData => UserStorage.createUser(userData));
+            return this.users;
+        } catch (error) {
+            throw new Error('Invalid JSON format');
+        }
+    }
+
+    // Load from JSON object/array
+    loadFromData(data) {
+        if (Array.isArray(data)) {
+            this.users = data.map(userData => UserStorage.createUser(userData));
+        } else {
+            throw new Error('Data must be an array of user objects');
+        }
+        return this.users;
+    }
+
+    // Add session to user's past sessions
+    addPastSession(identifier, sessionId) {
+        const user = this.findUser(identifier);
+        if (!user) {
+            throw new Error('User not found');
+        }
+
+        if (!Array.isArray(user.PastSessionId)) {
+            user.PastSessionId = [];
+        }
+
+        if (!user.PastSessionId.includes(sessionId)) {
+            user.PastSessionId.push(sessionId);
+        }
+
+        return user;
+    }
+
+    // Set active session and move current active to past
+    setActiveSession(identifier, newSessionId) {
+        const user = this.findUser(identifier);
+        if (!user) {
+            throw new Error('User not found');
+        }
+
+        // Move current active session to past sessions
+        if (user.ActiveSessionId) {
+            this.addPastSession(identifier, user.ActiveSessionId);
+        }
+
+        user.ActiveSessionId = newSessionId;
+        return user;
+    }
+
+    // Get user count
+    getUserCount() {
+        return this.users.length;
+    }
+}
+
+const userStorage = new UserStorage();
+
+// Example 1: Add users
+try {
+    userStorage.addUser({
+        Name: 'Shubhanshu Pandey',
+        UserId: 'Shub_9313',
+        Phone: '+919313562780',
+        Email: 'Shubhanshu@example.com',
+    });
+
+    userStorage.addUser({
+        Name: 'Ankit Patil',
+        UserId: 'Ankit_9512',
+        Phone: '+919512467691',
+        Email: 'Ankit@example.com'
+    });
+
+    userStorage.addUser({
+        Name: 'Abhinav Baldha',
+        UserId: 'Abhinav_9512',
+        Phone: '+918780899485',
+        Email: 'Abhinav@example.com'
+    });
+
+    console.log('Users added successfully');
+} catch (error) {
+    console.error('Error adding user:', error.message);
+}
+
 // Session Management
 class SessionManager {
     constructor() {
         this.sessions = new Map(); // Stores active sessions by roomName
     }
 
-    createSession(roomName, room) {
-        if (this.sessions.has(roomName)) {
-            console.warn(`Session ${roomName}: already exists, re-creating.`);
-            this.cleanupSession(roomName);
-        }
+    createSession(roomName, userData) {
+        let user = userStorage.findUser(userData)
+        // console.log(user)
+        if (user) {
+            if (user.ActiveSessionId) {
+                if (this.sessions.has(user.ActiveSessionId)) {
+                    console.warn(`Session ${user.ActiveSessionId}: already exists, re-creating.`);
+                    let currentSession = this.getSession(user.ActiveSessionId);
+                    currentSession.room = roomName;
+                    return currentSession
+                }
+            }
 
+            const id = generateRandomIdFromData(userData);
+            const session = {
+                id: id,
+                room: roomName,
+                dgSocket: null,
+                reconnectAttempts: 0,
+                lastTranscript: '',
+                transcriptBuffer: [],
+                audioStartTime: null,
+                userPhoneno: user.Phone,
+                lastInterimTime: Date.now(),
+                isSpeaking: false,
+                lastInterimTranscript: '',
+                interimResultsBuffer: [],
+                userSpeak: false,
+                streamSid: '',
+                callSid: '',
+                isAIResponding: false,
+                currentAudioStream: null,
+                interruption: false,
+                lastInterruptionTime: 0,
+                interruptionCooldown: 200,
+                ASSISTANT_ID: null,
+                lastResponseId: null,
+                threadId: null,
+                phoneNo: user.Phone,
+                currentMessage: {},
+                availableChannel: [],
+                chatHistory: [{
+                    role: 'assistant',
+                    content: `Hello ${user.Name} You are speaking to an AI assistant for Gautam Garment.`
+                }],
+                prompt: `You are a helpful AI assistant for the Shopify store "Gautam Garment". The user Name is ${user.Name}  You have access to several tools (functions) that let you fetch and provide real-time information about products, orders, and customers from the store.
+
+Your Tasks:
+
+Understand the user's message and intent.
+If you need specific store data (like product lists, order details, or customer info), use the available tools by calling the appropriate function with the required parameters.
+After receiving tool results, use them to generate a helpful, concise, and accurate response for the user.
+Always return your answer in JSON format with two fields:
+"response": your textual reply for the user
+"output_channel": the medium for your response
+
+Example Output:
+{
+"response": "Here are the top 5 products from Gautam Garment.",
+"output_channel": "audio"
+}
+
+User Input Format:
+The user's message will be a JSON object with "message" and "input_channel", for example:
+{
+"message": "Show me my recent orders",
+"input_channel": "audio"
+}
+
+Available Tools (functions):
+getAllProducts: Get a list of all products in the store.
+getUserDetailsByPhoneNo: Get customer details by phone number.
+getAllOrders: Get a list of all orders.
+getOrderById: Get details for a specific order by its ID.
+
+Instructions:
+If a user's request requires store data, call the relevant tool first, then use its result in your reply.
+If the user asks a general question or your response does not require real-time store data, answer directly.
+***Always use the user's input_channel for your response if it matches the available ***
+The store name is "Gautam Garment"—refer to it by name in your responses when appropriate.`,
+                metrics: { llm: 0, stt: 0, tts: 0 },
+
+                ffmpegProcess: null,
+                vadProcess: null,
+                turndetectionprocess: null,
+                vadDeepgramBuffer: Buffer.alloc(0),
+                isVadSpeechActive: false,
+                currentUserUtterance: '',
+                isTalking: false,
+                tools: [],
+                denoiser: null,
+                remainder: null
+            };
+            userStorage.setActiveSession(userData, id);
+            this.sessions.set(id, session);
+            console.log(`Session ${roomName}: Created new session.`);
+            return session;
+        }
+        const id = generateRandomIdFromData("temp");
         const session = {
-            id: roomName,
-            room: room,
+            id: id,
+            room: roomName,
             dgSocket: null,
             reconnectAttempts: 0,
             lastTranscript: '',
             transcriptBuffer: [],
             audioStartTime: null,
-            userPhoneno: null,
+            userPhoneno: "",
             lastInterimTime: Date.now(),
             isSpeaking: false,
             lastInterimTranscript: '',
             interimResultsBuffer: [],
             userSpeak: false,
-            streamSid: roomName,
+            streamSid: '',
             callSid: '',
             isAIResponding: false,
             currentAudioStream: null,
@@ -417,7 +728,7 @@ class SessionManager {
             ASSISTANT_ID: null,
             lastResponseId: null,
             threadId: null,
-            phoneNo: '',
+            phoneNo: "",
             currentMessage: {},
             availableChannel: [],
             chatHistory: [{
@@ -457,7 +768,7 @@ getOrderById: Get details for a specific order by its ID.
 Instructions:
 If a user's request requires store data, call the relevant tool first, then use its result in your reply.
 If the user asks a general question or your response does not require real-time store data, answer directly.
-Always use the user's input_channel for your response if it matches the available output channels.
+***Always use the user's input_channel for your response if it matches the available ***
 The store name is "Gautam Garment"—refer to it by name in your responses when appropriate.`,
             metrics: { llm: 0, stt: 0, tts: 0 },
 
@@ -472,7 +783,7 @@ The store name is "Gautam Garment"—refer to it by name in your responses when 
             denoiser: null,
             remainder: null
         };
-        this.sessions.set(roomName, session);
+        this.sessions.set(id, session);
         console.log(`Session ${roomName}: Created new session.`);
         return session;
     }
@@ -623,19 +934,60 @@ const audioUtils = {
         session.isAIResponding = true;
         session.interruption = false;
 
+        let source = null;
+        let track = null;
+        let isPublished = false;
+
         const stopFunction = () => {
             console.log(`Session ${session.id}: Stopping outgoing audio stream...`);
             session.interruption = true;
             session.isAIResponding = false;
             offset = mulawBuffer.length;
             session.currentAudioStream = null;
+
+            // Clean up the track
+            if (isPublished && track) {
+                try {
+                    room.localParticipant.unpublishTrack(track);
+                    console.log(`Session ${session.id}: Track unpublished`);
+                } catch (error) {
+                    console.error(`Session ${session.id}: Error unpublishing track:`, error);
+                }
+            }
         };
 
         session.currentAudioStream = { stop: stopFunction };
 
+        async function initializeAudioTrack() {
+            try {
+                source = new AudioSource(16000, 1);
+                track = LocalAudioTrack.createAudioTrack('ai-response', source);
+
+                await room.localParticipant.publishTrack(track, {
+                    source: TrackSource.SOURCE_MICROPHONE,
+                    name: 'ai-response'
+                });
+
+                isPublished = true;
+                console.log(`🎵 Track published to room: ${room}`);
+            } catch (error) {
+                console.error(`Session ${session.id}: Error initializing audio track:`, error);
+                stopFunction();
+                throw error;
+            }
+        }
+
         async function sendChunk() {
-            if (offset >= mulawBuffer.length || session.interruption) {
-                console.log(`Session ${session.id}: Audio stream ended or interrupted.`);
+            // Check for interruption at the start of each chunk
+            if (session.interruption) {
+                console.log(`Session ${session.id}: Audio stream interrupted.`);
+                session.isAIResponding = false;
+                session.currentAudioStream = null;
+                return;
+            }
+
+            if (offset >= mulawBuffer.length) {
+                console.log(`Session ${session.id}: Audio stream completed.`);
                 session.isAIResponding = false;
                 session.currentAudioStream = null;
                 return;
@@ -650,52 +1002,91 @@ const audioUtils = {
             }
 
             try {
-                const source = new AudioSource(16000, 1);
-                const track = LocalAudioTrack.createAudioTrack('ai-response', source);
+                // Create audio frame from the chunk
+                const audioFrame = new AudioFrame(chunk, 16000, 1, chunk.length);
 
-                await room.localParticipant.publishTrack(track, {
-                    source: TrackSource.SOURCE_MICROPHONE,
-                    name: 'ai-response'
-                });
+                // Send the frame to the audio source
+                await source.captureFrame(audioFrame);
 
-                console.log(`🎵 Track published to room: ${room}`);
+                // console.log(`Session ${session.id}: Sent audio chunk ${offset}-${offset + chunk.length}`);
 
-                const CHUNK_SIZE = 480; // 30ms at 16kHz
-                const chunks = [];
-
-                for (let i = 0; i < pcm.length; i += CHUNK_SIZE) {
-                    const chunk = pcm.slice(i, i + CHUNK_SIZE);
-                    chunks.push(chunk);
-                }
-
-                console.log(`🎵 Streaming ${chunks.length} audio chunks`);
-
-                // Stream chunks with proper timing
-                for (let i = 0; i < chunks.length; i++) {
-                    const chunk = chunks[i];
-                    const audioFrame = new AudioFrame(chunk, 16000, 1, chunk.length);
-
-                    await source.captureFrame(audioFrame);
-
-                    // Wait for the chunk duration before sending next chunk
-                    if (i < chunks.length - 1) {
-                        await new Promise(resolve => setTimeout(resolve, 30));
-                    }
-                }
-
-                console.log(`✅ Audio streaming completed for room: ${room}`);
-                // Send audio data to LiveKit room
-                // This would need to be implemented based on LiveKit's audio publishing API
-                // For now, we'll use a placeholder
-                console.log(`Session ${session.id}: Sending audio chunk to LiveKit`);
                 offset += CHUNK_SIZE_MULAW;
-                // setTimeout(sendChunk, 100);
+
+                // Schedule next chunk with proper timing
+                // Calculate delay based on chunk duration (assuming 16kHz sample rate)
+                const chunkDurationMs = (chunk.length / 16000) * 1000;
+
+                setTimeout(() => {
+                    if (!session.interruption) {
+                        sendChunk();
+                    }
+                }, chunkDurationMs);
+
             } catch (error) {
                 console.error(`Session ${session.id}: Error sending audio chunk:`, error);
                 stopFunction();
             }
         }
-        sendChunk();
+
+        // Initialize the audio track first, then start streaming
+        initializeAudioTrack()
+            .then(() => {
+                console.log(`Session ${session.id}: Starting audio stream...`);
+                sendChunk();
+            })
+            .catch(error => {
+                console.error(`Session ${session.id}: Failed to initialize audio streaming:`, error);
+                stopFunction();
+            });
+    },
+
+    streamMulawAudioToTwilio: function (ws, streamSid, mulawBuffer, session) {
+        const CHUNK_SIZE_MULAW = 800; // 20ms of 8khz mulaw (8000 samples/sec * 0.020 sec = 160 samples, 1 byte/sample)
+        let offset = 0;
+        session.isAIResponding = true;
+        session.interruption = false; // Reset interruption flag when AI starts speaking
+
+        const stopFunction = () => {
+            console.log(`Session ${session.id}: Stopping outgoing audio stream...`);
+            session.interruption = true; // Mark for immediate stop
+            session.isAIResponding = false;
+            offset = mulawBuffer.length; // Force stop by setting offset to end
+            session.currentAudioStream = null; // Clear reference
+        };
+
+        session.currentAudioStream = { stop: stopFunction }; // Store stop function for external interruption
+
+        function sendChunk() {
+            if (offset >= mulawBuffer.length || session.interruption) {
+                console.log(`Session ${session.id}: Audio stream ended or interrupted.`);
+                session.isAIResponding = false;
+                session.currentAudioStream = null;
+                return;
+            }
+
+            const chunk = mulawBuffer.slice(offset, offset + CHUNK_SIZE_MULAW);
+            if (chunk.length === 0) { // Handle case where the last chunk is empty
+                console.log(`Session ${session.id}: Last chunk is empty, ending stream.`);
+                session.isAIResponding = false;
+                session.currentAudioStream = null;
+                return;
+            }
+
+            try {
+                ws.send(JSON.stringify({
+                    event: 'media',
+                    streamSid,
+                    media: { payload: chunk.toString('base64') }
+                }));
+                offset += CHUNK_SIZE_MULAW;
+                // Schedule next chunk slightly faster than chunk duration for continuous flow
+                setTimeout(sendChunk, 100); // 180ms delay for 200ms chunk
+            } catch (error) {
+                console.error(`Session ${session.id}: Error sending audio chunk:`, error);
+                stopFunction(); // Stop on error
+            }
+        }
+        sendChunk(); // Start sending chunks
     }
 };
 
@@ -708,8 +1099,8 @@ const aiProcessing = {
             model: "gpt-4o-mini",
             input: input.message,
             instructions: session.prompt,
-            // tools: session.tools
-            tools: toolDefinitions
+            tools: session.tools
+            // tools: toolDefinitions
         };
         if (session.lastResponseId) {
             createResponseParams.previous_response_id = session.lastResponseId;
@@ -749,6 +1140,9 @@ const aiProcessing = {
             session.lastResponseId = response.id;
         }
 
+        session.lastResponseId = response.id;
+
+
         const messages = response.output || [];
         const assistantMessage = messages.find(m => m.role === "assistant");
 
@@ -759,12 +1153,12 @@ const aiProcessing = {
         } catch (error) {
             return {
                 processedText: assistantMessage.content[0].text || "Sorry, I had trouble understanding. Could you please rephrase?",
-                outputType: session.availableChannel[0]
+                outputType: input.input_channel
             };
         }
     },
 
-    async synthesizeSpeech2(text, sessionId) {
+    async synthesizeSpeech(text, sessionId) {
         if (!text) {
             console.error(`Session ${sessionId}: No text provided for synthesis.`);
             return null;
@@ -777,7 +1171,7 @@ const aiProcessing = {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${process.env.GABBER_USAGETOKEN}`,
+                    'Authorization': `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NTE3ODQ3NDgsImh1bWFuIjoic3RyaW5nIiwicHJvamVjdCI6IjkzYTUyY2Y4LTNmYTQtNDhjYi1hYTMyLWJiMzkxNDQxZTI4NSJ9.qJq78UrY86Hf-i6oUN6PPiSXgn51aewbSNus2-mGC6Q`,
                 },
                 body: JSON.stringify({
                     text,
@@ -807,7 +1201,7 @@ const aiProcessing = {
         }
     },
 
-    async synthesizeSpeech(text, sessionId) {
+    async synthesizeSpeech2(text, sessionId) {
         if (!text) {
             console.error(`Session ${sessionId}: No text provided for synthesis.`);
             return null;
@@ -864,7 +1258,6 @@ app.use(express.json());
 // Session Management Instance
 const sessionManager = new SessionManager();
 
-
 setInterval(() => {
     sessionManager.sessions.forEach(s => {
         if (s.dgSocket?.readyState === WebSocket.OPEN) {
@@ -898,7 +1291,7 @@ app.post('/get-token', async (req, res) => {
 // Create room and join as agent
 app.post('/create-room', async (req, res) => {
     try {
-        const { roomName } = req.body;
+        const { roomName, userData } = req.body;
 
         if (!roomName) {
             return res.status(400).json({ error: 'roomName is required' });
@@ -907,7 +1300,7 @@ app.post('/create-room', async (req, res) => {
         // Create room
         await roomService.createRoom({
             name: roomName,
-            emptyTimeout: 10 * 60, // 10 minutes
+            emptyTimeout: 20 * 60, // 10 minutes
             maxParticipants: 2,
         });
 
@@ -923,15 +1316,16 @@ app.post('/create-room', async (req, res) => {
         });
 
         // Create session for this room
-        const session = sessionManager.createSession(roomName, room);
+        const session = sessionManager.createSession(room, userData);
 
         // Set up room event handlers
         setupRoomEventHandlers(room, session);
 
         res.json({
             success: true,
-            roomName,
-            message: 'Room created and agent joined successfully'
+            sessionId: session.id,
+            message: 'Room created and agent joined successfully',
+            prompt: session.prompt
         });
     } catch (error) {
         console.error('Error creating room:', error);
@@ -959,9 +1353,10 @@ function setupRoomEventHandlers(room, session) {
 
     room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
         handleTrackSubscribed(track, publication, participant, session);
+        setChannel(session,"audio")
     });
 
-    room.on(RoomEvent.ChatMessage, (message,participant) => {
+    room.on(RoomEvent.ChatMessage, (message, participant) => {
         // console.log(payload)
         handleChatInput(message, participant, session)
     })
@@ -1025,7 +1420,6 @@ async function handleIncomingChat(message, participant, session) {
         }
     }
 }
-
 
 async function handleTrackSubscribed(track, publication, participant, session) {
     if (track.kind === TrackKind.KIND_AUDIO) {
@@ -1268,14 +1662,16 @@ async function handleTurnCompletion(session) {
                 throw new Error("Failed to convert audio to mulaw.");
             }
         } else {
-            // Handle text output
             session.room.localParticipant.publishData(
                 Buffer.from(JSON.stringify({
                     type: 'text_response',
                     content: processedText,
                     latency: session.metrics
                 })),
-                { topic: 'chat' }
+                {
+                    topic: 'chat',
+                    reliable: true
+                }
             );
             session.isAIResponding = false;
         }
@@ -1317,79 +1713,84 @@ function handleInterruption(session) {
 async function sendInitialAnnouncement(session) {
     let announcementText = session.chatHistory[0].content;
 
-    // const mp3Buffer = await aiProcessing.synthesizeSpeech(announcementText, session.id);
-    // if (mp3Buffer) {
-    //     const mulawBuffer = await audioUtils.convertMp3ToPcmInt16(mp3Buffer, session.id);
-    //     if (mulawBuffer) {
-    //         audioUtils.streamMulawAudioToLiveKit(session.room, mulawBuffer, session);
-    //     }
-    // }
+    const mp3Buffer = await aiProcessing.synthesizeSpeech(announcementText, session.id);
+    if (mp3Buffer) {
+        const mulawBuffer = await audioUtils.convertMp3ToPcmInt16(mp3Buffer, session.id);
+        if (mulawBuffer) {
+            audioUtils.streamMulawAudioToLiveKit(session.room, mulawBuffer, session);
+        }
+    }
 }
 
 // Handle chat messages
-app.post('/chat', async (req, res) => {
-    try {
-        const { roomName, message } = req.body;
+// app.post('/chat', async (req, res) => {
+//     try {
+//         const { roomName, message } = req.body;
 
-        if (!roomName || !message) {
-            return res.status(400).json({ error: 'roomName and message are required' });
-        }
+//         if (!roomName || !message) {
+//             return res.status(400).json({ error: 'roomName and message are required' });
+//         }
 
-        const session = sessionManager.getSession(roomName);
-        if (!session) {
-            return res.status(404).json({ error: 'Session not found' });
-        }
+//         const session = sessionManager.getSession(roomName);
+//         if (!session) {
+//             return res.status(404).json({ error: 'Session not found' });
+//         }
 
-        if (!session.availableChannel.includes("chat")) {
-            setChannel(session, "chat")
-        }
+//         if (!session.availableChannel.includes("chat")) {
+//             setChannel(session, "chat")
+//         }
 
-        const { processedText, outputType } = await aiProcessing.processInput(
-            { message: message, input_channel: 'chat' },
-            session
-        );
+//         const { processedText, outputType } = await aiProcessing.processInput(
+//             { message: message, input_channel: 'chat' },
+//             session
+//         );
 
-        if (outputType === 'chat') {
-            session.room.localParticipant.publishData(
-                Buffer.from(JSON.stringify({
-                    type: 'text_response',
-                    content: processedText,
-                    latency: session.metrics
-                })),
-                { topic: 'chat' }
-            );
-        } else if (outputType === 'audio') {
-            const audioBuffer = await aiProcessing.synthesizeSpeech(processedText, session.id);
-            if (audioBuffer) {
-                const mulawBuffer = await audioUtils.convertMp3ToMulaw(audioBuffer, session.id);
-                if (mulawBuffer) {
-                    audioUtils.streamMulawAudioToLiveKit(session.room, mulawBuffer, session);
-                }
-            }
-        }
+//         if (outputType === 'chat') {
+//             // session.room.localParticipant.publishData(
+//             //     Buffer.from(JSON.stringify({
+//             //         type: 'text_response',
+//             //         content: processedText,
+//             //         latency: session.metrics
+//             //     })),
+//             //     { topic: 'chat' }
+//             // );
 
-        res.json({ success: true, response: processedText });
-    } catch (error) {
-        console.error('Error processing chat message:', error);
-        res.status(500).json({ error: 'Failed to process chat message' });
-    }
-});
+//             res.json({ success: true, response: processedText });
+
+
+//         } else if (outputType === 'audio') {
+//             const audioBuffer = await aiProcessing.synthesizeSpeech(processedText, session.id);
+//             if (audioBuffer) {
+//                 const mulawBuffer = await audioUtils.convertMp3ToPcmInt16(audioBuffer, session.id);
+//                 if (mulawBuffer) {
+//                     audioUtils.streamMulawAudioToLiveKit(session.room, mulawBuffer, session);
+//                 }
+//             }
+//             res.json({ success: true });
+//         }
+//     } catch (error) {
+//         console.error('Error processing chat message:', error);
+//         res.status(500).json({ error: 'Failed to process chat message' });
+//     }
+// });
 
 // Change prompt
 app.post('/change-prompt', async (req, res) => {
     try {
-        const { roomName, prompt, tools } = req.body;
+        // console.log("initiated")
+        const { userData, prompt, tools } = req.body;
 
-        if (!roomName) {
-            return res.status(400).json({ error: 'roomName is required' });
+        let user = userStorage.findUser(userData);
+        if (!user) {
+            return res.status(400).json({ error: 'user is required' });
         }
-
-        const session = sessionManager.getSession(roomName);
+        const session = sessionManager.getSession(user.ActiveSessionId);
         if (!session) {
             return res.status(404).json({ error: 'Session not found' });
         }
 
         changePrompt(session, prompt, tools);
+        console.log(session.prompt)
 
         res.json({
             success: true,
@@ -1444,3 +1845,518 @@ process.on('SIGINT', () => {
 
 const wss = new WebSocket.Server({ port: 5002 });
 console.log("✅ WebSocket server started on ws://localhost:5002");
+
+// WebSocket Connection Handler
+wss.on('connection', (ws, req) => {
+    console.log("🎧 New client connected.");
+    let sessionId = null; // Will be set once 'start' event is received
+    let session = null; // Reference to the session object
+
+    // Global interval to keep Deepgram connections alive for ALL active sessions
+    const deepgramKeepAliveInterval = setInterval(() => {
+        sessionManager.sessions.forEach(s => {
+            if (s.dgSocket?.readyState === WebSocket.OPEN) {
+                s.dgSocket.send(JSON.stringify({ type: "KeepAlive" }));
+            }
+        });
+    }, 10000); // Send keep-alive every 10 seconds
+
+    async function handleTurnCompletion(session) {
+        const finalTranscript = session.currentUserUtterance;
+        if (!finalTranscript) return; // Do nothing if there's no transcript
+
+        // console.log(`Session ${session.id}: Turn complete. Processing final transcript: "${finalTranscript}"`);
+
+        // 1. Add the complete user message to the official chat history
+        session.chatHistory.push({ role: 'user', content: finalTranscript });
+
+        // 2. Reset the utterance buffer for the next turn
+        session.currentUserUtterance = '';
+
+        // 3. Send final transcript to client for display (optional, but good practice)
+        ws.send(JSON.stringify({
+            type: 'final_transcript',
+            transcript: finalTranscript,
+            isFinal: true
+        }));
+
+        try {
+            // 4. Get the AI's response
+            const { processedText, outputType } = await aiProcessing.processInput(
+                { message: finalTranscript, input_channel: 'audio' },
+                session
+            );
+
+            // 5. Add AI response to chat history
+            session.chatHistory.push({ role: 'assistant', content: processedText });
+
+            if (outputType === 'audio') {
+                // Your existing audio response logic
+                handleInterruption(session); // Stop any ongoing AI speech
+                const audioBuffer = await aiProcessing.synthesizeSpeech(processedText, session.id);
+                if (!audioBuffer) throw new Error("Failed to synthesize speech.");
+
+                const mulawBuffer = await audioUtils.convertMp3ToMulaw(audioBuffer, session.id);
+                if (mulawBuffer) {
+                    session.interruption = false;
+                    audioUtils.streamMulawAudioToTwilio(ws, session.streamSid, mulawBuffer, session);
+                } else {
+                    throw new Error("Failed to convert audio to mulaw.");
+                }
+            } else {
+                // Handle text output
+                ws.send(JSON.stringify({
+                    event: 'media',
+                    type: 'text_response',
+                    media: { payload: processedText },
+                    latency: session.metrics
+                }));
+                session.isAIResponding = false;
+            }
+        } catch (err) {
+            console.error(`Session ${session.id}: Error during turn completion handling:`, err);
+            ws.send(JSON.stringify({ type: 'error', error: err.message }));
+            session.isAIResponding = false;
+        }
+    }
+
+    // REFACTORED: Your connectToDeepgram function with turn detection integrated.
+    const connectToDeepgram = (currentSession) => { // Pass 'ws' as an argument
+        if (!currentSession || !currentSession.id) {
+            console.error('Attempted to connect to Deepgram without a valid session.');
+            return;
+        }
+
+        if (currentSession.dgSocket && currentSession.dgSocket.readyState === WebSocket.OPEN) {
+            currentSession.dgSocket.close();
+        }
+
+        currentSession.dgSocket = new WebSocket(
+            `wss://api.deepgram.com/v1/listen?encoding=linear16&sample_rate=16000&channels=1&model=nova-3&language=en&punctuate=true&interim_results=true&endpointing=200`,
+            ['token', `${process.env.DEEPGRAM_API}`]
+        );
+
+        currentSession.dgSocket.on('open', () => {
+            console.log(`Session ${currentSession.id}: ✅ Deepgram connected.`);
+        });
+
+        currentSession.dgSocket.on('message', async (data) => {
+            try {
+                const received = JSON.parse(data);
+                const transcript = received.channel?.alternatives?.[0]?.transcript;
+
+                if (!transcript) return;
+
+                if (currentSession.isAIResponding && (Date.now() - currentSession.lastInterruptionTime > currentSession.interruptionCooldown)) {
+                    console.log(`Session ${currentSession.id}: VAD detected speech during AI response. Initiating interruption.`);
+                    handleInterruption(currentSession);
+                    currentSession.lastInterruptionTime = Date.now();
+                }
+
+                // --- THIS IS THE CORE LOGIC CHANGE ---
+                if (received.is_final) {
+                    // A segment of speech has ended. We now check if it completes the user's turn.
+                    currentSession.isTalking = true
+                    currentSession.isSpeaking = false;
+                    currentSession.lastInterimTranscript = '';
+
+                    // 1. Append the new final segment to the ongoing utterance buffer.
+                    currentSession.currentUserUtterance += (currentSession.currentUserUtterance ? ' ' : '') + transcript;
+                    console.log(`Session ${currentSession.id}: Received final segment. Current utterance: "${currentSession.currentUserUtterance}"`);
+
+                    // 2. Prepare the conversation history for the turn detector.
+                    if (currentSession.chatHistory.length > 8) {
+                        currentSession.chatHistory.shift()
+                    }
+                    const messagesForDetection = [
+                        ...currentSession.chatHistory,
+                        { role: 'user', content: currentSession.currentUserUtterance }
+                    ];
+                    console.log(messagesForDetection);
+
+                    // 3. Ask the service if the turn is complete.
+                    // const isComplete = await turnDetector.CheckEndOfTurn({ messages: messagesForDetection })
+
+                    turnDetector.CheckEndOfTurn({ messages: messagesForDetection }, (err, response) => {
+                        (async () => {
+                            if (err) {
+                                console.error('❌ gRPC Error:', err);
+                            } else {
+                                if (response.end_of_turn) {
+                                    // YES, the turn is complete. Process the full utterance.
+                                    console.log(`Session ${currentSession.id}: ✅ Turn complete. Waiting for more input.`);
+                                    if (!currentSession.isVadSpeechActive) {
+                                        await handleTurnCompletion(currentSession);
+
+                                    }
+                                } else {
+                                    // NO, the user just paused. Wait for them to continue.
+                                    console.log(`Session ${currentSession.id}: ⏳ Turn NOT complete. Waiting for more input.`);
+                                    currentSession.isTalking = false
+                                    setTimeout(async () => {
+                                        if (!currentSession.isTalking && !currentSession.isVadSpeechActive) {
+                                            await handleTurnCompletion(currentSession)
+                                        }
+                                    }, 5000)
+                                }
+                            }
+                        })();
+                    });
+
+                    // if (isComplete.end_of_turn) {
+                    //     // YES, the turn is complete. Process the full utterance.
+                    //     await handleTurnCompletion(currentSession);
+                    // } else {
+                    //     // NO, the user just paused. Wait for them to continue.
+                    //     console.log(`Session ${currentSession.id}: ⏳ Turn NOT complete. Waiting for more input.`);
+                    // }
+
+                } else { // This is an interim result.
+                    // Interim logic remains the same - it's great for UI feedback.
+                    if (transcript.trim() && transcript !== currentSession.lastInterimTranscript) {
+                        currentSession.isSpeaking = true;
+                        currentSession.lastInterimTranscript = transcript;
+                        ws.send(JSON.stringify({
+                            type: 'interim_transcript',
+                            transcript: transcript
+                        }));
+                    }
+                }
+            } catch (err) {
+                console.error(`Session ${currentSession.id}: Deepgram message parse error:`, err);
+            }
+        });
+
+        currentSession.dgSocket.on('error', (err) => {
+            console.error(`Session ${currentSession.id}: Deepgram error:`, err);
+        });
+
+        currentSession.dgSocket.on('close', () => {
+            console.log(`Session ${currentSession.id}: Deepgram connection closed.`);
+        });
+    };
+
+    // Function to handle Deepgram reconnection for a specific session
+    const handleDeepgramReconnect = (currentSession) => {
+        if (!currentSession || !currentSession.id) return; // Defensive check
+
+        if (currentSession.reconnectAttempts < CONFIG.MAX_RECONNECT_ATTEMPTS) {
+            currentSession.reconnectAttempts++;
+            console.log(`Session ${currentSession.id}: Reconnecting to Deepgram (${currentSession.reconnectAttempts}/${CONFIG.MAX_RECONNECT_ATTEMPTS})...`);
+            setTimeout(() => connectToDeepgram(currentSession), CONFIG.RECONNECT_DELAY);
+        } else {
+            console.error(`Session ${currentSession.id}: Max Deepgram reconnection attempts reached. Terminating session.`);
+            ws.send(JSON.stringify({ error: 'Failed to connect to transcription service. Ending call.' }));
+            ws.close(); // Close the Twilio WebSocket, prompting Twilio to hang up
+        }
+    };
+
+    // Function to handle interruption of AI speech
+    const handleInterruption = (currentSession) => {
+        if (!currentSession || !currentSession.isAIResponding) return;
+
+        console.log(`Session ${currentSession.id}: Handling interruption.`);
+
+        // Stop any ongoing audio stream for this session
+        if (currentSession.currentAudioStream && typeof currentSession.currentAudioStream.stop === 'function') {
+            try {
+                currentSession.currentAudioStream.stop();
+            } catch (error) {
+                console.error(`Session ${currentSession.id}: Error stopping current audio stream:`, error);
+            }
+            currentSession.currentAudioStream = null;
+        }
+
+        // Send a few small silence buffers to Twilio to quickly "cut off" any remaining audio
+        // This is a common trick to ensure prompt interruption.
+        for (let i = 0; i < 3; i++) {
+            const silenceBuffer = audioUtils.generateSilenceBuffer(10); // 10ms silence
+            try {
+                ws.send(JSON.stringify({
+                    event: 'media',
+                    streamSid: currentSession.streamSid,
+                    media: { payload: silenceBuffer.toString('base64') }
+                }));
+            } catch (error) {
+                console.error(`Session ${currentSession.id}: Error sending silence buffer during interruption:`, error);
+            }
+        }
+
+        currentSession.isAIResponding = false;
+        currentSession.interruption = true; // Set flag to prevent new audio from starting immediately
+
+        // Reset interruption flag after a short cooldown
+        setTimeout(() => {
+            currentSession.interruption = false;
+            console.log(`Session ${currentSession.id}: Interruption cooldown finished.`);
+        }, currentSession.interruptionCooldown);
+    };
+
+    // Main message handler for the Twilio WebSocket connection
+    ws.on('message', async (data) => {
+        try {
+            const parsedData = JSON.parse(data);
+
+            if (parsedData.event === 'start') {
+                // console.log('start',parsedData);
+                let userData = parsedData.start?.customParameters?.caller || parsedData.userData;
+                session = sessionManager.createSession(ws, userData); // Pass ws to session manager
+                sessionId = session.id;
+                session.callSid = parsedData.start?.callSid;
+                session.streamSid = parsedData?.streamSid; // Confirm streamSid in session
+                session.caller = parsedData.start?.customParameters?.caller;
+                // console.log(session.caller);
+                console.log(`Session ${sessionId}: Twilio stream started for CallSid: ${session.callSid}`);
+                ws.send(JSON.stringify({
+                    type: "current_prompt",
+                    streamSid: session.streamSid,
+                    prompt: session.prompt,
+                    functions: toolDefinitions
+                }))
+                // console.log(parsedData.caller);
+
+                // Initialize per-session FFmpeg and VAD processes
+                session.ffmpegProcess = spawn('ffmpeg', [
+                    '-loglevel', 'quiet',
+                    '-f', 'mulaw', // Input format from Twilio
+                    '-ar', CONFIG.AUDIO_SAMPLE_RATE.toString(), // Input sample rate from Twilio
+                    '-ac', '1', // Input channels
+                    '-i', 'pipe:0', // Input from stdin
+                    '-f', 's16le', // Output format for VAD/Deepgram
+                    '-acodec', 'pcm_s16le', // Output codec
+                    '-ar', CONFIG.SAMPLE_RATE.toString(), // Output sample rate for VAD/Deepgram
+                    '-ac', '1', // Output channels
+                    'pipe:1' // Output to stdout
+                ]);
+
+
+                // session.ffmpegProcess = spawn('ffmpeg', [
+                //     '-loglevel', 'quiet',
+                //     '-f', 'mulaw',
+                //     '-ar', CONFIG.AUDIO_SAMPLE_RATE.toString(),
+                //     '-ac', '1',
+                //     '-i', 'pipe:0',
+                //     '-f', 's16le',
+                //     '-acodec', 'pcm_s16le',
+                //     '-ar', CONFIG.DENOISER_RATE.toString(),   // 48 000 Hz for RNNoise
+                //     '-ac', '1',
+                //     'pipe:1',
+                // ]);
+
+                // console.log("ffmpeg initiated")
+
+                // session.denoiser = NoiseCancellation();
+                // console.log(session.denoiser)
+                // session.remainder = Buffer.alloc(0); // Store partial frame chunks
+
+
+
+                // const denoiseStream = new Transform({
+                //     transform(chunk, _enc, cb) {
+                //         // Combine leftover and new chunk
+                //         chunk = Buffer.concat([session.remainder, chunk]);
+
+                //         const cleaned = [];
+                //         while (chunk.length >= 960) { // 480 samples = 960 bytes
+                //             const frame = chunk.subarray(0, 960);
+                //             chunk = chunk.subarray(960);
+                //             cleaned.push(session.denoiser.process(frame)); // Denoise!
+                //         }
+
+                //         session.remainder = chunk; // Store any remaining < 960 bytes
+                //         this.push(Buffer.concat(cleaned)); // Push clean PCM
+                //         cb();
+                //     },
+                //     flush(cb) {
+                //         // Pad and process remaining audio
+                //         if (session.remainder.length) {
+                //             const padded = Buffer.alloc(960);
+                //             session.remainder.copy(padded);
+                //             this.push(session.denoiser.process(padded));
+                //         }
+                //         cb();
+                //     }
+                // });
+
+                session.vadProcess = spawn(process.env.PYTHON_PATH || 'python3', ['vad.py']); // Use env var for Python path
+                session.ffmpegProcess.stdout.pipe(session.vadProcess.stdin); // Pipe FFmpeg output to VAD input
+                // session.ffmpegProcess.stdout
+                //     .pipe(denoiseStream) // Clean 48k Int16 PCM
+                //     .pipe(session.vadProcess.stdin);
+
+
+                // Attach VAD listener specific to this session
+                session.vadProcess.stdout.on('data', (vadData) => {
+                    // console.log("getting audio")
+                    try {
+                        const parsedVAD = JSON.parse(vadData.toString());
+                        if (parsedVAD.event === 'speech_start') {
+                            session.isVadSpeechActive = true;
+                            console.log(`Session ${session.id}: VAD detected Speech START. Resetting Deepgram buffer.`);
+                            session.vadDeepgramBuffer = Buffer.alloc(0); // Clear any old buffered audio
+                        } else if (parsedVAD.event === 'speech_end') {
+                            session.isVadSpeechActive = false;
+                            console.log(`Session ${session.id}: VAD detected Speech END.`);
+                            // When speech ends, send any remaining buffered audio to Deepgram
+                            if (session.vadDeepgramBuffer.length > 0 && session.dgSocket?.readyState === WebSocket.OPEN) {
+                                session.dgSocket.send(session.vadDeepgramBuffer);
+                                session.vadDeepgramBuffer = Buffer.alloc(0); // Clear buffer after sending
+                            }
+                            // Important: Send Deepgram a "Finalize" message when VAD detects speech end
+                            if (session.dgSocket?.readyState === WebSocket.OPEN) {
+                                console.log(`Session ${session.id}: Sending Deepgram Finalize message.`);
+                                session.dgSocket.send(JSON.stringify({ "type": "Finalize" }));
+                            }
+                        }
+
+                        if (parsedVAD.chunk) {
+                            console.log("got the speech")
+                            const audioBuffer = Buffer.from(parsedVAD.chunk, 'hex');
+                            session.vadDeepgramBuffer = Buffer.concat([session.vadDeepgramBuffer, audioBuffer]);
+                            // The key is to send frequently, not wait for a large chunk.
+                            if (session.isVadSpeechActive && session.dgSocket?.readyState === WebSocket.OPEN) {
+                                while (session.vadDeepgramBuffer.length >= CONFIG.DEEPGRAM_STREAM_CHUNK_SIZE) {
+                                    const chunkToSend = session.vadDeepgramBuffer.slice(0, CONFIG.DEEPGRAM_STREAM_CHUNK_SIZE);
+                                    session.dgSocket.send(chunkToSend);
+                                    session.vadDeepgramBuffer = session.vadDeepgramBuffer.slice(CONFIG.DEEPGRAM_STREAM_CHUNK_SIZE);
+                                    session.audioStartTime = Date.now(); // Mark time when audio is sent
+                                }
+                            }
+                        }
+                    } catch (err) {
+                        console.error(`Session ${session.id}: VAD output parse error:`, err);
+                    }
+                });
+
+                // Handle errors from FFmpeg and VAD processes for this session
+                session.ffmpegProcess.stderr.on('data', (data) => {
+                    // console.error(`Session ${sessionId}: FFmpeg stderr: ${data.toString()}`);
+                });
+                session.ffmpegProcess.on('error', (err) => {
+                    console.error(`Session ${sessionId}: FFmpeg process error:`, err);
+                });
+                session.ffmpegProcess.on('close', (code) => {
+                    if (code !== 0) console.warn(`Session ${sessionId}: FFmpeg process exited with code ${code}.`);
+                });
+
+                session.vadProcess.stderr.on('data', (data) => {
+                    // console.error(`Session ${sessionId}: VAD stderr: ${data.toString()}`);
+                });
+                session.vadProcess.on('error', (err) => {
+                    console.error(`Session ${sessionId}: VAD process error:`, err);
+                });
+                session.vadProcess.on('close', (code) => {
+                    if (code !== 0) console.warn(`Session ${sessionId}: VAD process exited with code ${code}.`);
+                });
+
+                // Connect to Deepgram after processes are set up
+                connectToDeepgram(session);
+
+                // Send initial announcement
+
+                // const userDetails = await functions.getUserDetailsByPhoneNo(session.caller);
+                // console.log(userDetails);
+                // let announcementText = session.chatHistory[0].content; // Get initial message from chat history
+                // // if (userDetails) {
+                // //     announcementText = `Hello ${userDetails.firstName}, welcome to the Gautam Garments. How can I help you today?`;
+                // // }
+
+                // const mp3Buffer = await aiProcessing.synthesizeSpeech(announcementText, session.id);
+                // if (mp3Buffer) {
+                //     const mulawBuffer = await audioUtils.convertMp3ToMulaw(mp3Buffer, session.id);
+                //     if (mulawBuffer) {
+                //         audioUtils.streamMulawAudioToTwilio(ws, session.streamSid, mulawBuffer, session);
+                //     }
+                // }
+
+            } else if (parsedData.event === 'media' && parsedData.media?.payload) {
+
+                // console.log('mediaEvent : ',parsedData);
+                // Ensure session exists and ffmpeg is ready to receive audio
+                if (parsedData.type === 'chat') {
+                    if (!session) {
+                        console.error('No session ID available for chat message. Ignoring.');
+                        return;
+                    }
+                    if (!session.availableChannel.includes("chat")) {
+                        setChannel(session, "chat")
+
+                    }
+                    console.log(session.availableChannel)
+                    console.log("chat recieved")
+                    const { processedText, outputType } = await aiProcessing.processInput(
+                        { message: parsedData.media.payload, input_channel: 'chat' },
+                        session
+                    );
+                    console.log(processedText, outputType)
+
+                    if (outputType === 'chat') {
+                        ws.send(JSON.stringify({
+                            event: 'media',
+                            type: 'text_response',
+                            media: { payload: processedText },
+                            latency: session.metrics
+                        }));
+                    } else if (outputType === 'audio') {
+                        const audioBuffer = await aiProcessing.synthesizeSpeech(processedText, session.id);
+                        if (audioBuffer) {
+                            const mulawBuffer = await audioUtils.convertMp3ToMulaw(audioBuffer, session.id);
+                            if (mulawBuffer) {
+                                audioUtils.streamMulawAudioToTwilio(ws, session.streamSid, mulawBuffer, session);
+                            }
+                        }
+                    }
+                }
+                else if (session && session.ffmpegProcess && session.ffmpegProcess.stdin.writable) {
+                    // console.log("event called")
+                    if (!session.availableChannel.includes("audio")) {
+                        setChannel(session, "audio")
+                    }
+                    const audioBuffer = Buffer.from(parsedData.media.payload, 'base64');
+                    // console.log(`Session ${session.id}: Writing ${audioBuffer.length} bytes to FFmpeg`);
+                    session.ffmpegProcess.stdin.write(audioBuffer); // Write to this session's ffmpeg
+                } else {
+                    // console.warn(`Session ${sessionId}: Media received but ffmpeg not ready or session not found.`);
+                }
+            } else if (parsedData.event === 'change_prompt') {
+                console.log('session', session.streamSid)
+                console.log('prompt', parsedData.prompt)
+                changePrompt(session, parsedData.prompt, parsedData.tools, ws)
+            }
+            // Add other event types if necessary (e.g., 'stop', 'mark')
+        } catch (err) {
+            console.error(`Session ${sessionId}: Error processing Twilio WebSocket message:`, err);
+        }
+    });
+
+    ws.on('close', () => {
+        console.log(`Session ${sessionId}: Twilio client disconnected.`);
+        // if (sessionId) {
+        //     sessionManager.deleteSession(sessionId);
+        // }
+        clearInterval(deepgramKeepAliveInterval); // Clear keep-alive for this WS
+    });
+
+    ws.on('error', (error) => {
+        console.error(`Session ${sessionId}: Twilio client error:`, error);
+        if (sessionId) {
+            sessionManager.cleanupSession(sessionId); // Cleanup on error
+        }
+        clearInterval(deepgramKeepAliveInterval); // Clear keep-alive for this WS
+    });
+});
+
+// Process Termination Handler for the main server process
+process.on('SIGINT', () => {
+    console.log('\nServer shutting down. Cleaning up all sessions...');
+    sessionManager.sessions.forEach((s, sessionId) => {
+        sessionManager.cleanupSession(sessionId);
+    });
+    // Give a small moment for processes to terminate
+    setTimeout(() => {
+        wss.close(() => {
+            console.log('WebSocket server closed.');
+            process.exit(0);
+        });
+    }, 500);
+});
