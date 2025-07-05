@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-const SERVER_URL = 'http://localhost:5001';
+// const SERVER_URL = 'http://localhost:5001';
+const SERVER_URL = 'https://call-server.shipfast.studio/livekit';
+
+
 const Chat = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [sessionId, setSessionId] = useState(null);
@@ -104,7 +107,8 @@ const Chat = () => {
       setError(null);
 
       // Connect to WebSocket
-      wsRef.current = new WebSocket('ws://localhost:5002');
+      // wsRef.current = new WebSocket('ws://localhost:5002');
+      wsRef.current = new WebSocket('wss://call-server.shipfast.studio/websocket');
 
       wsRef.current.onopen = () => {
         console.log('WebSocket connected, starting session...');

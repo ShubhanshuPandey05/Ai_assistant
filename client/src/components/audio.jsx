@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Room, RoomEvent, DataPacket_Kind, RemoteParticipant, RemoteTrackPublication, RemoteAudioTrack } from 'livekit-client';
 
-const SERVER_URL = 'http://localhost:5001';
+// const SERVER_URL = 'http://localhost:5001';
+const SERVER_URL = 'https://call-server.shipfast.studio/livekit';
 
 const Audio = () => {
   const [isConnected, setIsConnected] = useState(false);
@@ -114,6 +115,7 @@ const Audio = () => {
         setRoom(null);
       });
     } catch (err) {
+      console.log(err)
       setError('Failed to connect: ' + err.message);
     }
   };
@@ -268,8 +270,7 @@ const Audio = () => {
       </div>
       {error && <div className="text-red-300 text-sm mb-4">{error}</div>}
       <audio ref={audioRef} autoPlay />
-
-
+      
 
 
       {/* Prompt Box */}

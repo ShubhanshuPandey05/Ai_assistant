@@ -1276,12 +1276,14 @@ app.post('/get-token', async (req, res) => {
         }
 
         const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
-            identity: participantName,
-            ttl: 36000
+            identity: participantName
         });
         at.addGrant({ roomJoin: true, room: roomName });
 
-        res.json({ token: at.toJwt() });
+        // console.log(at)
+        let token = await at.toJwt()
+
+        res.json({ token: token });
     } catch (error) {
         console.error('Error generating token:', error);
         res.status(500).json({ error: 'Failed to generate token' });
@@ -1310,8 +1312,12 @@ app.post('/create-room', async (req, res) => {
             identity: 'AI-Agent',
         });
         agentToken.addGrant({ roomJoin: true, room: roomName });
-
-        await room.connect(LIVEKIT_URL, agentToken.toJwt(), {
+        // console.log(agentToken)
+        // console.log("livekit Url", LIVEKIT_URL)
+        // console.log("livekit api", LIVEKIT_API_KEY)
+        // console.log("livekit Sec", LIVEKIT_API_SECRET)
+        let token = await agentToken.toJwt()
+        await room.connect(LIVEKIT_URL, token, {
             autoSubscribe: true
         });
 
@@ -1353,7 +1359,7 @@ function setupRoomEventHandlers(room, session) {
 
     room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
         handleTrackSubscribed(track, publication, participant, session);
-        setChannel(session,"audio")
+        setChannel(session, "audio")
     });
 
     room.on(RoomEvent.ChatMessage, (message, participant) => {
