@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Room, RoomEvent, DataPacket_Kind, RemoteParticipant, RemoteTrackPublication, RemoteAudioTrack } from 'livekit-client';
 
-// const SERVER_URL = 'http://localhost:5001';
-const SERVER_URL = 'https://call-server.shipfast.studio/livekit';
+const SERVER_URL = 'http://localhost:5001';
+// const SERVER_URL = 'https://call-server.shipfast.studio/livekit';
 
 const Audio = () => {
   const [isConnected, setIsConnected] = useState(false);
@@ -64,6 +64,34 @@ const Audio = () => {
     }
   ]);
   const [selectedFunction, setSelectedFunction] = useState([]);
+  const [callInput, setCallInput] = useState('');
+
+  const handleCallInput = (e) => {
+    setCallInput(e.target.value);
+  };
+
+  const handleCall = async () => {
+    // const callInput = '+1234567890'; // Replace with the recipient's number
+    try {
+      const response = await fetch('https://temp-vb4k.onrender.com/call', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: callInput })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Error from server:', errorText);
+        return;
+      }
+
+      const data = await response.json(); // only if server sends JSON
+      console.log('Response:', data);
+    } catch (error) {
+      console.error('Fetch error:', error.message);
+    }
+  };
+
 
 
   const handlePhoneChange = (e) => {
@@ -179,7 +207,10 @@ const Audio = () => {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const audioTrack = stream.getAudioTracks()[0];
         await room.localParticipant.publishTrack(audioTrack);
-        setIsMicOn(true);
+        setTimeout(() => {
+          // handleCall()
+          setIsMicOn(true);
+        }, 3000)
       } else {
         // Get all audio tracks and unpublish them
         room.localParticipant.audioTracks.forEach(publication => {
@@ -270,7 +301,9 @@ const Audio = () => {
       </div>
       {error && <div className="text-red-300 text-sm mb-4">{error}</div>}
       <audio ref={audioRef} autoPlay />
-      
+
+
+
 
 
       {/* Prompt Box */}
@@ -308,7 +341,18 @@ const Audio = () => {
         </div>) : ""
       }
 
-
+      {/* Call Box */}
+      {
+        !isConnected ? (
+          <div className='flex flex-col items-center justify-center'>
+            <p className='text-2xl font-bold mb-4'>OR</p>
+            <div className="bg-white/10 backdrop-blur-md py-3 px-6 rounded-xl border border-white/20 shadow-md">
+              <input type="text" placeholder='Enter phone number' value={callInput} onChange={handleCallInput} className='bg-white/10 text-white placeholder-gray-400 px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:opacity-50' />
+              <button onClick={handleCall} className='bg-blue-600 mx-5 text-white px-6 py-2 rounded-2xl'>Call</button>
+            </div>
+          </div>
+        ) : ""
+      }
       {/* <div className="bg-white/10 backdrop-blur-md p-6 rounded-xl border border-white/20 shadow-md mb-6">
         <h2 className="text-2xl font-bold mb-4">💬 Chat</h2>
         <div className="h-40 bg-white/5 rounded-lg overflow-y-auto p-3 mb-4 text-sm text-gray-200 border border-white/10">
