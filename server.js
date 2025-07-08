@@ -1417,37 +1417,37 @@ const aiProcessing = {
         const startTime = Date.now();
     
         try {
-            const response = await deepgramTts.speak.request(
-                { text },
-                {
-                    model: 'aura-2-thalia-en',
-                    encoding: 'linear16',
-                    sample_rate: 16000,
-                    container: 'none',
-                }
-            );
+            // Use Live TTS API instead of standard request
+            const dgConnection = deepgramTts.speak.live({
+                model: 'aura-2-thalia-en',
+                encoding: 'linear16',
+                sample_rate: 16000,  // Match your LiveKit sample rate
+                container: 'none',
+            });
     
-            // Get the stream from the response
-            const stream = await response.getStream();
-            
-            if (!stream) {
-                throw new Error('Failed to get audio stream from Deepgram response');
-            }
-    
-            console.log(`Session ${sessionId}: Starting TTS streaming...`);
             let totalChunks = 0;
             let firstChunkTime = null;
             let leftoverBuffer = null;
     
-            // Process stream chunks as they arrive
-            for await (const chunk of stream) {
+            // Set up event handlers
+            dgConnection.on(LiveTTSEvents.Open, () => {
+                console.log(`Session ${sessionId}: Live TTS connection opened`);
+                
+                // Send text data for TTS synthesis
+                dgConnection.sendText(text);
+                
+                // Send Flush message to the server after sending the text
+                dgConnection.flush();
+            });
+    
+            dgConnection.on(LiveTTSEvents.Audio, async (data) => {
                 if (!firstChunkTime) {
                     firstChunkTime = Date.now() - startTime;
                     console.log(`Session ${sessionId}: First chunk received in ${firstChunkTime}ms`);
                 }
     
                 // Convert chunk to Uint8Array for easier manipulation
-                const chunkArray = new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+                const chunkArray = new Uint8Array(data);
                 
                 // Combine with leftover bytes from previous chunk
                 let combinedArray;
@@ -1478,32 +1478,55 @@ const aiProcessing = {
                     );
     
                     totalChunks++;
-                    // console.log(`Session ${sessionId}: Processing chunk ${totalChunks}, size: ${pcmArray.length} samples`);
+                    console.log(`Session ${sessionId}: Processing chunk ${totalChunks}, size: ${pcmArray.length} samples`);
     
                     // Send chunk immediately to LiveKit
                     await onChunkCallback(pcmArray);
                 }
-            }
+            });
     
-            // Handle any remaining leftover bytes
-            if (leftoverBuffer) {
-                console.log(`Session ${sessionId}: Processing final leftover byte`);
-                // Pad with zero to make it even
-                const finalArray = new Uint8Array(2);
-                finalArray.set(leftoverBuffer);
-                finalArray[1] = 0;
+            dgConnection.on(LiveTTSEvents.Flushed, async () => {
+                console.log(`Session ${sessionId}: Deepgram Flushed`);
                 
-                const finalPcmArray = new Int16Array(finalArray.buffer);
-                await onChunkCallback(finalPcmArray);
-            }
+                // Handle any remaining leftover bytes
+                if (leftoverBuffer) {
+                    console.log(`Session ${sessionId}: Processing final leftover byte`);
+                    // Pad with zero to make it even
+                    const finalArray = new Uint8Array(2);
+                    finalArray.set(leftoverBuffer);
+                    finalArray[1] = 0;
+                    
+                    const finalPcmArray = new Int16Array(finalArray.buffer);
+                    await onChunkCallback(finalPcmArray);
+                }
     
-            const totalLatency = Date.now() - startTime;
-            console.log(`Session ${sessionId}: TTS streaming completed. Total time: ${totalLatency}ms, Total chunks: ${totalChunks}`);
+                const totalLatency = Date.now() - startTime;
+                console.log(`Session ${sessionId}: Live TTS streaming completed. Total time: ${totalLatency}ms, Total chunks: ${totalChunks}`);
+                
+                // Close the connection
+                dgConnection.requestClose();
+            });
     
-            return true;
+            dgConnection.on(LiveTTSEvents.Close, () => {
+                console.log(`Session ${sessionId}: Live TTS connection closed`);
+            });
+    
+            dgConnection.on(LiveTTSEvents.Error, (err) => {
+                console.error(`Session ${sessionId}: Live TTS error:`, err);
+                throw err;
+            });
+    
+            dgConnection.on(LiveTTSEvents.Metadata, (data) => {
+                console.log(`Session ${sessionId}: Metadata received:`, data);
+            });
+    
+            return new Promise((resolve, reject) => {
+                dgConnection.on(LiveTTSEvents.Flushed, () => resolve(true));
+                dgConnection.on(LiveTTSEvents.Error, reject);
+            });
     
         } catch (err) {
-            console.error(`Session ${sessionId}: Speech synthesis streaming error:`, err);
+            console.error(`Session ${sessionId}: Live TTS streaming error:`, err);
             throw err;
         }
     },
@@ -1512,7 +1535,7 @@ const aiProcessing = {
         const TTSTimeStart = Date.now();
         
         try {
-            // Initialize streaming to LiveKit
+            // Initialize streaming to LiveKit (same as before)
             const addAudioChunk = audioUtils.streamPCMAudioToLiveKit(
                 session.room, 
                 session,
@@ -1522,7 +1545,7 @@ const aiProcessing = {
                 }
             );
     
-            // Start streaming synthesis
+            // Start Live TTS streaming synthesis
             await aiProcessing.synthesizeSpeechStream(
                 processedText, 
                 session.id, 
@@ -1530,11 +1553,10 @@ const aiProcessing = {
             );
     
         } catch (error) {
-            console.error(`Session ${session.id}: TTS streaming failed:`, error);
+            console.error(`Session ${session.id}: Live TTS streaming failed:`, error);
             throw error;
         }
     }
-
 
 };
 
