@@ -1043,183 +1043,122 @@ const audioUtils = {
             });
     },
 
-    deepgramTtsToLiveKit: async function (room, text, session) {
-        const conn = deepgramTts.speak.live({
-            model: 'aura-2-thalia-en',
-            encoding: 'linear16',
-            sample_rate: 16000,
-            container: 'none',
-        });
-
+    streamPCMAudioToLiveKit: function (room, session, onComplete) {
+        const CHUNK_SIZE_PCM = 800; // Adjust based on your needs
+        session.isAIResponding = true;
+        session.interruption = false;
+    
         let source = null;
         let track = null;
         let isPublished = false;
-        let isStreamActive = true;
         let audioQueue = [];
-        let isProcessingQueue = false;
-
+        let isStreaming = false;
+    
         const stopFunction = () => {
-            console.log(`Session ${session.id}: Stopping TTS audio stream...`);
-            isStreamActive = false;
+            console.log(`Session ${session.id}: Stopping outgoing audio stream...`);
             session.interruption = true;
-            audioQueue = []; // Clear queue
-
+            session.isAIResponding = false;
+            session.currentAudioStream = null;
+            audioQueue = [];
+    
             // Clean up the track
             if (isPublished && track) {
                 try {
                     room.localParticipant.unpublishTrack(track);
-                    console.log(`Session ${session.id}: TTS track unpublished`);
-                    isPublished = false;
+                    console.log(`Session ${session.id}: Track unpublished`);
                 } catch (error) {
-                    console.error(`Session ${session.id}: Error unpublishing TTS track:`, error);
+                    console.error(`Session ${session.id}: Error unpublishing track:`, error);
                 }
             }
-
-            // Close the source
-            if (source) {
-                try {
-                    source.close();
-                    console.log(`Session ${session.id}: Audio source closed`);
-                } catch (error) {
-                    console.error(`Session ${session.id}: Error closing audio source:`, error);
-                }
-            }
-
-            // Close Deepgram connection
-            try {
-                conn.close();
-            } catch (error) {
-                console.error(`Session ${session.id}: Error closing Deepgram connection:`, error);
-            }
+    
+            if (onComplete) onComplete();
         };
-
+    
+        session.currentAudioStream = { stop: stopFunction };
+    
         async function initializeAudioTrack() {
             try {
-                // Create AudioSource with direct parameters (not object)
                 source = new AudioSource(16000, 1);
-                track = LocalAudioTrack.createAudioTrack('ai-tts-response', source);
-
+                track = LocalAudioTrack.createAudioTrack('ai-response', source);
+    
                 await room.localParticipant.publishTrack(track, {
                     source: TrackSource.SOURCE_MICROPHONE,
-                    name: 'ai-tts-response'
+                    name: 'ai-response'
                 });
-
+    
                 isPublished = true;
-                console.log(`🎵 TTS Track published to room`);
+                console.log(`🎵 Track published to room: ${room}`);
             } catch (error) {
-                console.error(`Session ${session.id}: Error initializing TTS audio track:`, error);
+                console.error(`Session ${session.id}: Error initializing audio track:`, error);
                 stopFunction();
                 throw error;
             }
         }
-
-        // Process audio queue with proper timing
+    
+        // Function to add audio chunks to queue
+        const addAudioChunk = async (pcmArray) => {
+            if (session.interruption) return;
+            
+            audioQueue.push(pcmArray);
+            
+            // Start streaming if not already streaming
+            if (!isStreaming) {
+                isStreaming = true;
+                processAudioQueue();
+            }
+        };
+    
         async function processAudioQueue() {
-            if (isProcessingQueue || !isStreamActive) return;
-
-            isProcessingQueue = true;
-
-            while (audioQueue.length > 0 && isStreamActive) {
-                const buffer = audioQueue.shift();
-
+            while (audioQueue.length > 0 && !session.interruption) {
+                const pcmArray = audioQueue.shift();
+                
                 try {
-                    // Check if source is still valid
-                    if (!source || !isStreamActive) {
-                        console.log(`Session ${session.id}: Audio source no longer valid, stopping queue processing`);
-                        break;
-                    }
-
-                    // Create AudioFrame object
-                    const audioFrame = new AudioFrame(buffer, 16000, 1, buffer.length / 2);
-
+                    // Create audio frame from the PCM data
+                    const audioFrame = new AudioFrame(pcmArray, 16000, 1, pcmArray.length);
+    
                     // Send the frame to the audio source
                     await source.captureFrame(audioFrame);
-
-                    // Add small delay to prevent overwhelming the audio source
-                    // Calculate delay based on audio chunk duration
-                    const chunkDurationMs = (buffer.length / 2 / 16000) * 1000; // 16-bit samples
-                    const delay = Math.max(chunkDurationMs * 0.8, 10); // At least 10ms delay
-
-                    await new Promise(resolve => setTimeout(resolve, delay));
-
+    
+                    // console.log(`Session ${session.id}: Sent audio chunk, size: ${pcmArray.length} samples`);
+    
+                    // Calculate delay based on chunk duration
+                    const chunkDurationMs = (pcmArray.length / 16000) * 1000;
+                    
+                    // Small delay to maintain proper timing
+                    await new Promise(resolve => setTimeout(resolve, chunkDurationMs));
+    
                 } catch (error) {
-                    console.error(`Session ${session.id}: Error processing TTS audio from queue:`, error);
+                    console.error(`Session ${session.id}: Error sending audio chunk:`, error);
                     stopFunction();
-                    break;
+                    return;
                 }
             }
-
-            isProcessingQueue = false;
-
-            // If there are still items in queue and we're still active, continue processing
-            if (audioQueue.length > 0 && isStreamActive) {
-                setTimeout(() => processAudioQueue(), 50);
+    
+            // Mark streaming as complete when queue is empty
+            if (audioQueue.length === 0) {
+                isStreaming = false;
+                console.log(`Session ${session.id}: Audio queue processed completely`);
+                
+                // Small delay before cleanup to ensure all audio is played
+                setTimeout(() => {
+                    if (audioQueue.length === 0) {
+                        stopFunction();
+                    }
+                }, 100);
             }
         }
-
+    
         // Initialize the audio track first
-        await initializeAudioTrack();
-
-        // Handle Deepgram connection open
-        conn.on(LiveTTSEvents.Open, () => {
-            console.log('🟢 Deepgram stream open');
-            conn.sendText(text);
-            conn.flush(); // Mark TTS input complete
-        });
-
-        // Handle audio chunks from Deepgram
-        conn.on(LiveTTSEvents.Audio, (pcmChunk) => {
-            try {
-                // Check for interruption
-                if (session.interruption || !isStreamActive) {
-                    console.log(`Session ${session.id}: TTS audio stream interrupted.`);
-                    return;
-                }
-
-                const buffer = Buffer.from(pcmChunk);
-
-                if (buffer.length === 0) {
-                    console.log(`Session ${session.id}: Empty TTS chunk received.`);
-                    return;
-                }
-
-                // Add to queue instead of processing immediately
-                audioQueue.push(buffer);
-
-                // Limit queue size to prevent memory issues
-                if (audioQueue.length > 100) {
-                    console.warn(`Session ${session.id}: Audio queue getting large (${audioQueue.length}), dropping oldest chunks`);
-                    audioQueue.shift(); // Remove oldest chunk
-                }
-
-                // Start processing queue if not already processing
-                if (!isProcessingQueue) {
-                    processAudioQueue();
-                }
-
-            } catch (error) {
-                console.error(`Session ${session.id}: Error handling TTS audio chunk:`, error);
+        initializeAudioTrack()
+            .then(() => {
+                console.log(`Session ${session.id}: Audio track initialized, ready for streaming...`);
+            })
+            .catch(error => {
+                console.error(`Session ${session.id}: Failed to initialize audio streaming:`, error);
                 stopFunction();
-            }
-        });
-
-        conn.on(LiveTTSEvents.Close, () => {
-            console.log('🔴 Deepgram stream closed');
-            // Don't stop immediately, let the queue finish processing
-            setTimeout(() => {
-                if (audioQueue.length === 0) {
-                    stopFunction();
-                }
-            }, 1000);
-        });
-
-        conn.on(LiveTTSEvents.Error, (err) => {
-            console.error('❌ Deepgram TTS Error:', err);
-            stopFunction();
-        });
-
-        // Store stop function for external access
-        session.currentTTSStream = { stop: stopFunction };
+            });
+    
+        return addAudioChunk;
     },
 
     streamMulawAudioToTwilio: function (ws, streamSid, mulawBuffer, session) {
@@ -1417,7 +1356,7 @@ const aiProcessing = {
             console.error(`Session ${sessionId}: No text provided for synthesis.`);
             return null;
         }
-    
+
         const streamToBuffer = async (stream) => {
             const chunks = [];
             for await (const chunk of stream) {
@@ -1425,6 +1364,55 @@ const aiProcessing = {
             }
             return Buffer.concat(chunks);
         };
+
+        const startTime = Date.now();
+
+        try {
+            const response = await deepgramTts.speak.request(
+                { text },
+                {
+                    model: 'aura-2-thalia-en',
+                    encoding: 'linear16',
+                    sample_rate: 16000,
+                    container: 'none',
+                }
+            );
+
+            // Get the stream from the response
+            const stream = await response.getStream();
+
+            if (!stream) {
+                throw new Error('Failed to get audio stream from Deepgram response');
+            }
+
+            // Convert stream to buffer
+            const audioBuffer = await streamToBuffer(stream);
+
+            // Convert Buffer to Int16Array (raw PCM)
+            const pcmArray = new Int16Array(
+                audioBuffer.buffer.slice(
+                    audioBuffer.byteOffset,
+                    audioBuffer.byteOffset + audioBuffer.byteLength
+                )
+            );
+
+            const latency = Date.now() - startTime;
+            console.log(`Session ${sessionId}: Deepgram TTS Latency: ${latency}ms`);
+            console.log(`Session ${sessionId}: PCM Array length: ${pcmArray.length} samples`);
+
+            return pcmArray;
+
+        } catch (err) {
+            console.error(`Session ${sessionId}: Speech synthesis error with Deepgram:`, err);
+            throw err;
+        }
+    },
+
+    async synthesizeSpeechStream(text, sessionId, onChunkCallback) {
+        if (!text) {
+            console.error(`Session ${sessionId}: No text provided for synthesis.`);
+            return null;
+        }
     
         const startTime = Date.now();
     
@@ -1446,26 +1434,104 @@ const aiProcessing = {
                 throw new Error('Failed to get audio stream from Deepgram response');
             }
     
-            // Convert stream to buffer
-            const audioBuffer = await streamToBuffer(stream);
+            console.log(`Session ${sessionId}: Starting TTS streaming...`);
+            let totalChunks = 0;
+            let firstChunkTime = null;
+            let leftoverBuffer = null;
     
-            // Convert Buffer to Int16Array (raw PCM)
-            const pcmArray = new Int16Array(
-                audioBuffer.buffer.slice(
-                    audioBuffer.byteOffset, 
-                    audioBuffer.byteOffset + audioBuffer.byteLength
-                )
-            );
+            // Process stream chunks as they arrive
+            for await (const chunk of stream) {
+                if (!firstChunkTime) {
+                    firstChunkTime = Date.now() - startTime;
+                    console.log(`Session ${sessionId}: First chunk received in ${firstChunkTime}ms`);
+                }
     
-            const latency = Date.now() - startTime;
-            console.log(`Session ${sessionId}: Deepgram TTS Latency: ${latency}ms`);
-            console.log(`Session ${sessionId}: PCM Array length: ${pcmArray.length} samples`);
+                // Convert chunk to Uint8Array for easier manipulation
+                const chunkArray = new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+                
+                // Combine with leftover bytes from previous chunk
+                let combinedArray;
+                if (leftoverBuffer) {
+                    combinedArray = new Uint8Array(leftoverBuffer.length + chunkArray.length);
+                    combinedArray.set(leftoverBuffer);
+                    combinedArray.set(chunkArray, leftoverBuffer.length);
+                    leftoverBuffer = null;
+                } else {
+                    combinedArray = chunkArray;
+                }
     
-            return pcmArray;
+                // If odd number of bytes, save the last byte for next chunk
+                let bytesToProcess = combinedArray.length;
+                if (bytesToProcess % 2 !== 0) {
+                    leftoverBuffer = new Uint8Array([combinedArray[bytesToProcess - 1]]);
+                    bytesToProcess -= 1;
+                }
+    
+                // Only process if we have bytes to process
+                if (bytesToProcess > 0) {
+                    // Create Int16Array from even number of bytes
+                    const pcmArray = new Int16Array(
+                        combinedArray.buffer.slice(
+                            combinedArray.byteOffset,
+                            combinedArray.byteOffset + bytesToProcess
+                        )
+                    );
+    
+                    totalChunks++;
+                    // console.log(`Session ${sessionId}: Processing chunk ${totalChunks}, size: ${pcmArray.length} samples`);
+    
+                    // Send chunk immediately to LiveKit
+                    await onChunkCallback(pcmArray);
+                }
+            }
+    
+            // Handle any remaining leftover bytes
+            if (leftoverBuffer) {
+                console.log(`Session ${sessionId}: Processing final leftover byte`);
+                // Pad with zero to make it even
+                const finalArray = new Uint8Array(2);
+                finalArray.set(leftoverBuffer);
+                finalArray[1] = 0;
+                
+                const finalPcmArray = new Int16Array(finalArray.buffer);
+                await onChunkCallback(finalPcmArray);
+            }
+    
+            const totalLatency = Date.now() - startTime;
+            console.log(`Session ${sessionId}: TTS streaming completed. Total time: ${totalLatency}ms, Total chunks: ${totalChunks}`);
+    
+            return true;
     
         } catch (err) {
-            console.error(`Session ${sessionId}: Speech synthesis error with Deepgram:`, err);
+            console.error(`Session ${sessionId}: Speech synthesis streaming error:`, err);
             throw err;
+        }
+    },
+
+    async processTextToSpeech(processedText, session) {
+        const TTSTimeStart = Date.now();
+        
+        try {
+            // Initialize streaming to LiveKit
+            const addAudioChunk = audioUtils.streamPCMAudioToLiveKit(
+                session.room, 
+                session,
+                () => {
+                    const TTSTime = Date.now() - TTSTimeStart;
+                    console.log(`Session ${session.id}: Complete TTS pipeline time: ${TTSTime}ms`);
+                }
+            );
+    
+            // Start streaming synthesis
+            await aiProcessing.synthesizeSpeechStream(
+                processedText, 
+                session.id, 
+                addAudioChunk
+            );
+    
+        } catch (error) {
+            console.error(`Session ${session.id}: TTS streaming failed:`, error);
+            throw error;
         }
     }
 
@@ -1908,21 +1974,22 @@ async function handleTurnCompletion(session) {
 
         if (outputType === 'audio') {
             handleInterruption(session);
-            let TTSTimeStart = Date.now()
-            const audioBuffer = await aiProcessing.synthesizeSpeech(processedText, session.id);
-            let TTSTime = Date.now() - TTSTimeStart
-            console.log("TTSTime", TTSTime)
-            if (!audioBuffer) throw new Error("Failed to synthesize speech.");
-            // let convertTimeStart = Date.now()
-            // const mulawBuffer = await audioUtils.convertMp3ToPcmInt16(audioBuffer, session.id);
-            // let convertTime = Date.now() - convertTimeStart
-            // console.log("convertTime", convertTime)
-            if (audioBuffer) {
-                session.interruption = false;
-                audioUtils.streamMulawAudioToLiveKit(session.room, audioBuffer, session);
-            } else {
-                throw new Error("Failed to convert audio to mulaw.");
-            }
+            // let TTSTimeStart = Date.now()
+            // const audioBuffer = await aiProcessing.synthesizeSpeech(processedText, session.id);
+            // let TTSTime = Date.now() - TTSTimeStart
+            // console.log("TTSTime", TTSTime)
+            // if (!audioBuffer) throw new Error("Failed to synthesize speech.");
+            // // let convertTimeStart = Date.now()
+            // // const mulawBuffer = await audioUtils.convertMp3ToPcmInt16(audioBuffer, session.id);
+            // // let convertTime = Date.now() - convertTimeStart
+            // // console.log("convertTime", convertTime)
+            // if (audioBuffer) {
+            //     session.interruption = false;
+            //     audioUtils.streamMulawAudioToLiveKit(session.room, audioBuffer, session);
+            // } else {
+            //     throw new Error("Failed to convert audio to mulaw.");
+            // }
+            await aiProcessing.processTextToSpeech(processedText, session);
         } else {
             session.room.localParticipant.publishData(
                 Buffer.from(JSON.stringify({
@@ -1976,13 +2043,14 @@ async function sendInitialAnnouncement(session) {
     let announcementText = session.chatHistory[0].content;
 
     // await audioUtils.deepgramTtsToLiveKit(session.room, announcementText, session);
-    const mp3Buffer = await aiProcessing.synthesizeSpeech(announcementText, session.id);
-    if (mp3Buffer) {
-        // const mulawBuffer = await audioUtils.convertMp3ToPcmInt16(mp3Buffer, session.id);
-        // if (mulawBuffer) {
-        audioUtils.streamMulawAudioToLiveKit(session.room, mp3Buffer, session);
-        // }
-    }
+    // const mp3Buffer = await aiProcessing.synthesizeSpeech(announcementText, session.id);
+    // if (mp3Buffer) {
+    //     // const mulawBuffer = await audioUtils.convertMp3ToPcmInt16(mp3Buffer, session.id);
+    //     // if (mulawBuffer) {
+    //     audioUtils.streamMulawAudioToLiveKit(session.room, mp3Buffer, session);
+    //     // }
+    // }
+    await aiProcessing.processTextToSpeech(announcementText, session);
 }
 
 // Handle chat messages
