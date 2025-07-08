@@ -2248,10 +2248,10 @@ wss.on('connection', (ws, req) => {
                 const audioBuffer = await aiProcessing.synthesizeSpeech(processedText, session.id);
                 if (!audioBuffer) throw new Error("Failed to synthesize speech.");
 
-                const mulawBuffer = await audioUtils.convertMp3ToMulaw(audioBuffer, session.id);
-                if (mulawBuffer) {
+                // const mulawBuffer = await audioUtils.convertMp3ToMulaw(audioBuffer, session.id);
+                if (audioBuffer) {
                     session.interruption = false;
-                    audioUtils.streamMulawAudioToTwilio(ws, session.streamSid, mulawBuffer, session);
+                    audioUtils.streamMulawAudioToTwilio(ws, session.streamSid, audioBuffer, session);
                 } else {
                     throw new Error("Failed to convert audio to mulaw.");
                 }
@@ -2615,10 +2615,11 @@ wss.on('connection', (ws, req) => {
 
                 const mp3Buffer = await aiProcessing.synthesizeSpeech(announcementText, session.id);
                 if (mp3Buffer) {
-                    const mulawBuffer = await audioUtils.convertMp3ToMulaw(mp3Buffer, session.id);
-                    if (mulawBuffer) {
-                        audioUtils.streamMulawAudioToTwilio(ws, session.streamSid, mulawBuffer, session);
-                    }
+                    // const mulawBuffer = await audioUtils.convertMp3ToMulaw(mp3Buffer, session.id);
+                    // if (mulawBuffer) {
+                    //     audioUtils.streamMulawAudioToTwilio(ws, session.streamSid, mulawBuffer, session);
+                    // }
+                    audioUtils.streamMulawAudioToTwilio(ws, session.streamSid, mp3Buffer, session);
                 }
 
             } else if (parsedData.event === 'media' && parsedData.media?.payload) {
