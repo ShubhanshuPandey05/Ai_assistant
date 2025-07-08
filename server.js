@@ -1922,7 +1922,7 @@ function connectToDeepgram(session) {
                                     if (!session.isTalking && !session.isVadSpeechActive) {
                                         await handleTurnCompletion(session)
                                     }
-                                }, 5000)
+                                }, 1000)
                             }
                         }
                     })();
