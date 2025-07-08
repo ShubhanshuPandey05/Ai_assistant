@@ -1372,9 +1372,8 @@ const aiProcessing = {
                 { text },
                 {
                     model: 'aura-2-thalia-en',
-                    encoding: 'mp3', // change to mp3
-                    sample_rate: 16000,
-                    container: 'none',
+                    encoding: 'mp3',// Optional, still valid
+                    // ✅ DO NOT include `container`
                 }
             );
     
@@ -1390,7 +1389,7 @@ const aiProcessing = {
             console.log(`Session ${sessionId}: Deepgram TTS Latency: ${latency}ms`);
             console.log(`Session ${sessionId}: MP3 Buffer size: ${mp3Buffer.length} bytes`);
     
-            return mp3Buffer; // return raw MP3 buffer
+            return mp3Buffer;
     
         } catch (err) {
             console.error(`Session ${sessionId}: Speech synthesis error with Deepgram:`, err);
@@ -1398,7 +1397,6 @@ const aiProcessing = {
         }
     },
     
-
     async synthesizeSpeechStream(text, sessionId, onChunkCallback) {
         if (!text) {
             console.error(`Session ${sessionId}: No text provided for synthesis.`);
@@ -2606,7 +2604,7 @@ wss.on('connection', (ws, req) => {
 
                 const mp3Buffer = await aiProcessing.synthesizeSpeech(announcementText, session.id);
                 if (mp3Buffer) {
-                    // const mulawBuffer = await audioUtils.convertMp3ToMulaw(mp3Buffer, session.id);
+                    const mulawBuffer = await audioUtils.convertMp3ToMulaw(mp3Buffer, session.id);
                     if (mulawBuffer) {
                         audioUtils.streamMulawAudioToTwilio(ws, session.streamSid, mulawBuffer, session);
                     }
