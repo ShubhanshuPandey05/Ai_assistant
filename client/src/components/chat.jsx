@@ -218,6 +218,7 @@ const Chat = () => {
                 {/* <option value="">-- Please select --</option> */}
                 <option value="" className="bg-black text-white">Unknown</option>
                 <option value="+919313562780" className="bg-black text-white">Shubhanshu</option>
+                <option value="+919512467691" className="bg-black text-white">Ankit C</option>
                 <option value="+918780899485" className="bg-black text-white">Abhinav</option>
               </select>
             </div>
@@ -228,7 +229,8 @@ const Chat = () => {
                   Selected: <span className="font-semibold">{
                     selectedPhone === '+919313562780' ? 'Shubhanshu' :
                       selectedPhone === '+918780899485' ? 'Abhinav' :
-                        'Unknown'
+                        selectedPhone === '+919512467691' ? 'Ankit C' :
+                          'Unknown'
                   }</span>
                 </p>
               </div>
@@ -330,7 +332,7 @@ const Chat = () => {
 
       {/* Prompt Box */}
       {
-        isConnected&&selectedPhone ? (<div className="bg-white/10 w-full backdrop-blur-md p-6 rounded-xl border border-white/20 shadow-md mb-6">
+        isConnected && selectedPhone ? (<div className="bg-white/10 w-full backdrop-blur-md p-6 rounded-xl border border-white/20 shadow-md mb-6">
           <h2 className="text-2xl font-bold mb-2">Prompt</h2>
           <textarea className="text-gray-200 whitespace-pre-wrap break-words min-h-fit h-200 max-h-400 w-full overflow-y-auto" onChange={((e) => { setEditingPrompt(e.target.value) })} value={editingPrompt} />
           <div className=' text-3xl'>
