@@ -1356,7 +1356,7 @@ const aiProcessing = {
             console.error(`Session ${sessionId}: No text provided for synthesis.`);
             return null;
         }
-
+    
         const streamToBuffer = async (stream) => {
             const chunks = [];
             for await (const chunk of stream) {
@@ -1364,49 +1364,40 @@ const aiProcessing = {
             }
             return Buffer.concat(chunks);
         };
-
+    
         const startTime = Date.now();
-
+    
         try {
             const response = await deepgramTts.speak.request(
                 { text },
                 {
                     model: 'aura-2-thalia-en',
-                    encoding: 'linear16',
+                    encoding: 'mp3', // change to mp3
                     sample_rate: 16000,
                     container: 'none',
                 }
             );
-
-            // Get the stream from the response
+    
             const stream = await response.getStream();
-
+    
             if (!stream) {
                 throw new Error('Failed to get audio stream from Deepgram response');
             }
-
-            // Convert stream to buffer
-            const audioBuffer = await streamToBuffer(stream);
-
-            // Convert Buffer to Int16Array (raw PCM)
-            const pcmArray = new Int16Array(
-                audioBuffer.buffer.slice(
-                    audioBuffer.byteOffset,
-                    audioBuffer.byteOffset + audioBuffer.byteLength
-                )
-            );
-
+    
+            const mp3Buffer = await streamToBuffer(stream);
+    
             const latency = Date.now() - startTime;
             console.log(`Session ${sessionId}: Deepgram TTS Latency: ${latency}ms`);
-            console.log(`Session ${sessionId}: PCM Array length: ${pcmArray.length} samples`);
-
-            return pcmArray;
-
+            console.log(`Session ${sessionId}: MP3 Buffer size: ${mp3Buffer.length} bytes`);
+    
+            return mp3Buffer; // return raw MP3 buffer
+    
         } catch (err) {
             console.error(`Session ${sessionId}: Speech synthesis error with Deepgram:`, err);
             throw err;
         }
     },
+    
 
     async synthesizeSpeechStream(text, sessionId, onChunkCallback) {
         if (!text) {
