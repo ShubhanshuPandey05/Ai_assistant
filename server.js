@@ -1478,7 +1478,7 @@ const aiProcessing = {
                     );
     
                     totalChunks++;
-                    console.log(`Session ${sessionId}: Processing chunk ${totalChunks}, size: ${pcmArray.length} samples`);
+                    // console.log(`Session ${sessionId}: Processing chunk ${totalChunks}, size: ${pcmArray.length} samples`);
     
                     // Send chunk immediately to LiveKit
                     await onChunkCallback(pcmArray);
