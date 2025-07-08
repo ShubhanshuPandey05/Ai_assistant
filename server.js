@@ -2248,10 +2248,10 @@ wss.on('connection', (ws, req) => {
                 const audioBuffer = await aiProcessing.synthesizeSpeech(processedText, session.id);
                 if (!audioBuffer) throw new Error("Failed to synthesize speech.");
 
-                // const mulawBuffer = await audioUtils.convertMp3ToMulaw(audioBuffer, session.id);
-                if (audioBuffer) {
+                const mulawBuffer = await audioUtils.convertMp3ToMulaw(audioBuffer, session.id);
+                if (mulawBuffer) {
                     session.interruption = false;
-                    audioUtils.streamMulawAudioToTwilio(ws, session.streamSid, audioBuffer, session);
+                    audioUtils.streamMulawAudioToTwilio(ws, session.streamSid, mulawBuffer, session);
                 } else {
                     throw new Error("Failed to convert audio to mulaw.");
                 }
@@ -2616,10 +2616,9 @@ wss.on('connection', (ws, req) => {
                 const mp3Buffer = await aiProcessing.synthesizeSpeech(announcementText, session.id);
                 if (mp3Buffer) {
                     // const mulawBuffer = await audioUtils.convertMp3ToMulaw(mp3Buffer, session.id);
-                    // if (mulawBuffer) {
-                    //     audioUtils.streamMulawAudioToTwilio(ws, session.streamSid, mulawBuffer, session);
-                    // }
-                    audioUtils.streamMulawAudioToTwilio(ws, session.streamSid, mp3Buffer, session);
+                    if (mulawBuffer) {
+                        audioUtils.streamMulawAudioToTwilio(ws, session.streamSid, mulawBuffer, session);
+                    }
                 }
 
             } else if (parsedData.event === 'media' && parsedData.media?.payload) {
