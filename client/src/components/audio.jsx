@@ -87,6 +87,7 @@ const Audio = () => {
 
       const data = await response.json(); // only if server sends JSON
       console.log('Response:', data);
+      setSelectedPhone('');
     } catch (error) {
       console.error('Fetch error:', error.message);
     }

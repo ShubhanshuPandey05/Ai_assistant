@@ -2608,18 +2608,18 @@ wss.on('connection', (ws, req) => {
 
                 // const userDetails = await functions.getUserDetailsByPhoneNo(session.caller);
                 // console.log(userDetails);
-                // let announcementText = session.chatHistory[0].content; // Get initial message from chat history
-                // // if (userDetails) {
-                // //     announcementText = `Hello ${userDetails.firstName}, welcome to the Gautam Garments. How can I help you today?`;
-                // // }
-
-                // const mp3Buffer = await aiProcessing.synthesizeSpeech(announcementText, session.id);
-                // if (mp3Buffer) {
-                //     const mulawBuffer = await audioUtils.convertMp3ToMulaw(mp3Buffer, session.id);
-                //     if (mulawBuffer) {
-                //         audioUtils.streamMulawAudioToTwilio(ws, session.streamSid, mulawBuffer, session);
-                //     }
+                let announcementText = session.chatHistory[0].content; // Get initial message from chat history
+                // if (userDetails) {
+                //     announcementText = `Hello ${userDetails.firstName}, welcome to the Gautam Garments. How can I help you today?`;
                 // }
+
+                const mp3Buffer = await aiProcessing.synthesizeSpeech(announcementText, session.id);
+                if (mp3Buffer) {
+                    const mulawBuffer = await audioUtils.convertMp3ToMulaw(mp3Buffer, session.id);
+                    if (mulawBuffer) {
+                        audioUtils.streamMulawAudioToTwilio(ws, session.streamSid, mulawBuffer, session);
+                    }
+                }
 
             } else if (parsedData.event === 'media' && parsedData.media?.payload) {
 
