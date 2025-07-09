@@ -1,31 +1,49 @@
+import os
 import math
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
-from typing import Any, List, Dict, Tuple
+from typing import List, Dict, Tuple, Any
+
+from transformers import AutoTokenizer
+from optimum.onnxruntime import ORTModelForCausalLM
+from optimum.exporters.onnx import main_export
+
 
 class ConversationTurnDetector:
     HF_MODEL_ID = "HuggingFaceTB/SmolLM2-360M-Instruct"
+    ONNX_MODEL_DIR = "./onnx_model"
     MAX_HISTORY = 2
     DEFAULT_THRESHOLD = 0.03
 
     def __init__(self, threshold: float = DEFAULT_THRESHOLD):
         self.threshold = threshold
-        self.tokenizer = AutoTokenizer.from_pretrained(self.HF_MODEL_ID, truncation_side="left")
-        self.model = AutoModelForCausalLM.from_pretrained(self.HF_MODEL_ID)
-        self.model.to("cpu")
-        self.model.eval()
+
+        # Export ONNX model if not already present
+        if not os.path.exists(self.ONNX_MODEL_DIR):
+            print("🔄 Exporting model to ONNX format...")
+            main_export(
+                model_name_or_path=self.HF_MODEL_ID,
+                output=self.ONNX_MODEL_DIR,
+                task="text-generation",
+                use_cache=False  # important: disable cache for ONNX unless explicitly supported
+            )
+            print("✅ Model exported to ONNX.")
+
+        # Load tokenizer and ONNX model
+        self.tokenizer = AutoTokenizer.from_pretrained(self.HF_MODEL_ID, use_fast=True)
+        self.model = ORTModelForCausalLM.from_pretrained(self.ONNX_MODEL_DIR)
+
+        # Disable use_cache to prevent ONNX runtime errors
+        self.model.generation_config.use_cache = False
+
         self._warmup()
-        
+
     def _warmup(self):
-        dummy = self.tokenizer("Hello", return_tensors="pt").to(self.model.device)
+        dummy = self.tokenizer("Hello", return_tensors="pt")
         with torch.no_grad():
-            self.model(**dummy)
+            # ✅ Explicitly disable use_cache to avoid ONNX errors
+            _ = self.model(**dummy, use_cache=False)
 
     def _convert_messages_to_chatml(self, messages: List[Dict[str, Any]]) -> str:
-        """
-        Converts a list of messages into a single string in ChatML format.
-        Removes the EOT token from the last message so the model can predict it.
-        """
         if not messages:
             return ""
 
@@ -43,33 +61,27 @@ class ConversationTurnDetector:
         return tokenized_convo
 
     def get_next_token_logprobs(self, prompt_text: str) -> Dict[str, float]:
-        """
-        Performs local inference to get log probabilities for the next token.
-        """
-        inputs = self.tokenizer(prompt_text, return_tensors="pt", add_special_tokens=False).to("cpu")
+        inputs = self.tokenizer(prompt_text, return_tensors="pt", add_special_tokens=False)
 
         with torch.no_grad():
-            outputs = self.model(**inputs)
+            outputs = self.model(**inputs, use_cache=False)
 
-        next_token_logits = outputs.logits[0, -1, :]
-        log_softmax_probs = torch.nn.functional.log_softmax(next_token_logits, dim=-1)
+        logits = outputs.logits[0, -1, :]
+        log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
 
         k = 5
-        top_logprobs_vals, top_logprobs_ids = torch.topk(log_softmax_probs, k)
+        top_vals, top_indices = torch.topk(log_probs, k)
 
-        top_logprobs_dict = {}
+        top_logprobs = {}
         for i in range(k):
-            token_id = top_logprobs_ids[i].item()
+            token_id = top_indices[i].item()
             token_str = self.tokenizer.decode([token_id])
-            logprob_val = top_logprobs_vals[i].item()
-            top_logprobs_dict[token_str] = logprob_val
+            logprob_val = top_vals[i].item()
+            top_logprobs[token_str] = logprob_val
 
-        return top_logprobs_dict
+        return top_logprobs
 
     def process_result(self, top_logprobs: Dict[str, float], target_tokens: List[str] = ["<|im_end|>"]) -> Tuple[float, str]:
-        """
-        Extracts the max probability among the specified target tokens.
-        """
         max_prob = 0.0
         best_token = ""
 
@@ -84,31 +96,25 @@ class ConversationTurnDetector:
         return max_prob, best_token
 
     def predict_eot_prob(self, messages: List[Dict[str, Any]]) -> float:
-        """
-        Predicts the probability that the current turn is complete.
-        """
         truncated_messages = messages[-self.MAX_HISTORY:]
         text_input = self._convert_messages_to_chatml(truncated_messages)
-
-        # print(f"EOT Input: '...{text_input}'")
         top_logprobs = self.get_next_token_logprobs(text_input)
         eot_prob, _ = self.process_result(top_logprobs)
+
         print(f"EOT Probability: {eot_prob:.4f}")
         return eot_prob
-    
+
     def detect_turn_completion(self, messages: List[Dict[str, Any]]) -> bool:
-        """
-        Returns True if end-of-turn probability exceeds threshold.
-        """
         eot_prob = self.predict_eot_prob(messages)
         return eot_prob > self.threshold
 
-    
 
-# model = EndOfTurnModel()
-# messages = [
-#     {"role": "user", "content": "What's the weather like today?"},
-#     {"role": "assistant", "content": "It's sunny and 25 degrees Celsius."}
-# ]
-# prob = model.predict_eot_prob(messages)
-# print("Is end of turn likely?", prob > model.threshold)
+# 🧪 Test Example
+if __name__ == "__main__":
+    detector = ConversationTurnDetector()
+    messages = [
+        {"role": "user", "content": "What's the weather like today?"},
+        {"role": "assistant", "content": "It's sunny and 25 degrees Celsius."}
+    ]
+    is_done = detector.detect_turn_completion(messages)
+    print("Is turn completed?", is_done)
