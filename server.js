@@ -93,6 +93,139 @@ const toolDefinitions = [
     }
 ];
 
+function detectTurnEnd(currentText, options = {}) {
+    // Configuration with defaults
+    const config = {
+        minLength: options.minLength || 2,
+        silenceThreshold: options.silenceThreshold || 800, // ms
+        punctuationWeight: options.punctuationWeight || 0.5,
+        questionWeight: options.questionWeight || 0.7,
+        statementWeight: options.statementWeight || 0.4,
+        ...options
+    };
+
+    // Early return for very short or empty text
+    if (!currentText || currentText.trim().length < config.minLength) {
+        return false;
+    }
+
+    const text = currentText.trim();
+    let score = 0;
+
+    // 1. Definitive sentence endings (high confidence)
+    const definitiveEndings = /[.!]\s*$/;
+    if (definitiveEndings.test(text)) {
+        score += 0.9;
+    }
+
+    // 2. Question completion patterns (very strong indicator)
+    const questionPatterns = [
+        /\?\s*$/,  // Direct question mark
+        /^(what|how|why|when|where|who|which|can|could|would|should|do|does|did|is|are|was|were)\b.*[?.]?\s*$/i,
+        /\b(right|okay|ok)\?\s*$/i,
+        /\b(you know|understand|make sense)\?\s*$/i
+    ];
+
+    if (questionPatterns.some(pattern => pattern.test(text))) {
+        score += config.questionWeight;
+    }
+
+    // 3. Natural completion phrases (strong indicators)
+    const completionPhrases = [
+        /\b(that's it|that's all|done|finished|complete)\b/i,
+        /\b(thank you|thanks|bye|goodbye|see you)\b/i,
+        /\b(anyway|anyhow|well|so|ok|okay|alright)\s*[.!]?\s*$/i,
+        /\b(never mind|forget it|doesn't matter)\b/i
+    ];
+
+    if (completionPhrases.some(pattern => pattern.test(text))) {
+        score += 0.8;
+    }
+
+    // 4. Response completion patterns
+    const responsePatterns = [
+        /\b(yes|no|sure|okay|alright|exactly|correct|right)\s*[.!]?\s*$/i,
+        /\b(I think|I believe|I guess|I suppose)\b.*[.!]\s*$/i,
+        /\b(maybe|probably|perhaps|possibly)\s*[.!]?\s*$/i
+    ];
+
+    if (responsePatterns.some(pattern => pattern.test(text))) {
+        score += 0.6;
+    }
+
+    // 5. Incomplete patterns (reduce score - indicates ongoing speech)
+    const incompletePatterns = [
+        /\b(and|but|or|so|because|since|although|while|if|when|where|that|which)\s*$/i,
+        /,\s*$/,  // Ends with comma
+        /\b(the|a|an)\s*$/i,  // Ends with articles
+        /\b(in|on|at|by|for|with|to|from)\s*$/i,  // Ends with prepositions
+        /\b(I'm|I am|I was|I will|I have|I had)\s*$/i,  // Incomplete statements
+        /\b(going to|want to|need to|have to)\s*$/i,  // Incomplete actions
+        /\b(kind of|sort of|type of)\s*$/i  // Incomplete descriptions
+    ];
+
+    if (incompletePatterns.some(pattern => pattern.test(text))) {
+        score -= 0.7;  // Strong penalty for incomplete patterns
+    }
+
+    // 6. Pause indicators and fillers (weak indicators)
+    const pauseFillers = [
+        /\b(um|uh|hmm|er|ah|eh)\s*$/i,
+        /\.{2,}\s*$/,  // Multiple dots
+        /\s{2,}$/  // Multiple spaces (can indicate pause)
+    ];
+
+    if (pauseFillers.some(pattern => pattern.test(text))) {
+        score += 0.3;  // Moderate indicator
+    }
+
+    // 7. Command/request completion
+    const commandPatterns = [
+        /^(please|can you|could you|would you)\b.*[.!]?\s*$/i,
+        /\b(help me|show me|tell me|give me|send me)\b.*[.!]?\s*$/i,
+        /\b(find|search|look for|check)\b.*[.!]?\s*$/i
+    ];
+
+    if (commandPatterns.some(pattern => pattern.test(text))) {
+        score += 0.5;
+    }
+
+    // 8. Length-based scoring (current text analysis)
+    const wordCount = text.split(/\s+/).filter(word => word.length > 0).length;
+    if (wordCount >= 3 && wordCount <= 15) {
+        score += 0.2;  // Good length for complete thoughts
+    }
+    if (wordCount > 20) {
+        score += 0.1;  // Longer text might be complete
+    }
+
+    // 9. Emotional expressions (often end turns)
+    const emotionalEndings = [
+        /\b(wow|great|amazing|awesome|terrible|awful|sad|happy|excited|surprised)\s*[!.]\s*$/i,
+        /[!]{2,}\s*$/,  // Multiple exclamation marks
+        /\b(oh no|oh wow|oh my|oh god|oh dear)\b/i
+    ];
+
+    if (emotionalEndings.some(pattern => pattern.test(text))) {
+        score += 0.4;
+    }
+
+    // 10. Conversational turn-taking cues
+    const turnTakingCues = [
+        /\b(you know|I mean|like I said|basically|actually|honestly|seriously)\b.*[.!]\s*$/i,
+        /\b(right|correct|exactly|precisely|absolutely)\s*[.!]?\s*$/i,
+        /\b(your turn|go ahead|over to you)\b/i
+    ];
+
+    if (turnTakingCues.some(pattern => pattern.test(text))) {
+        score += 0.5;
+    }
+
+    // Threshold-based decision (adjusted for real-time processing)
+    const threshold = 0.5;  // Lower threshold for real-time detection
+    return score >= threshold;
+}
+
 // Service Initialization
 const services = {
     twilio: new twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN),
@@ -1047,20 +1180,20 @@ const audioUtils = {
         const CHUNK_SIZE_PCM = 800; // Adjust based on your needs
         session.isAIResponding = true;
         session.interruption = false;
-    
+
         let source = null;
         let track = null;
         let isPublished = false;
         let audioQueue = [];
         let isStreaming = false;
-    
+
         const stopFunction = () => {
             console.log(`Session ${session.id}: Stopping outgoing audio stream...`);
             session.interruption = true;
             session.isAIResponding = false;
             session.currentAudioStream = null;
             audioQueue = [];
-    
+
             // Clean up the track
             if (isPublished && track) {
                 try {
@@ -1070,22 +1203,22 @@ const audioUtils = {
                     console.error(`Session ${session.id}: Error unpublishing track:`, error);
                 }
             }
-    
+
             if (onComplete) onComplete();
         };
-    
+
         session.currentAudioStream = { stop: stopFunction };
-    
+
         async function initializeAudioTrack() {
             try {
                 source = new AudioSource(16000, 1);
                 track = LocalAudioTrack.createAudioTrack('ai-response', source);
-    
+
                 await room.localParticipant.publishTrack(track, {
                     source: TrackSource.SOURCE_MICROPHONE,
                     name: 'ai-response'
                 });
-    
+
                 isPublished = true;
                 console.log(`🎵 Track published to room: ${room}`);
             } catch (error) {
@@ -1094,51 +1227,51 @@ const audioUtils = {
                 throw error;
             }
         }
-    
+
         // Function to add audio chunks to queue
         const addAudioChunk = async (pcmArray) => {
             if (session.interruption) return;
-            
+
             audioQueue.push(pcmArray);
-            
+
             // Start streaming if not already streaming
             if (!isStreaming) {
                 isStreaming = true;
                 processAudioQueue();
             }
         };
-    
+
         async function processAudioQueue() {
             while (audioQueue.length > 0 && !session.interruption) {
                 const pcmArray = audioQueue.shift();
-                
+
                 try {
                     // Create audio frame from the PCM data
                     const audioFrame = new AudioFrame(pcmArray, 16000, 1, pcmArray.length);
-    
+
                     // Send the frame to the audio source
                     await source.captureFrame(audioFrame);
-    
+
                     // console.log(`Session ${session.id}: Sent audio chunk, size: ${pcmArray.length} samples`);
-    
+
                     // Calculate delay based on chunk duration
                     const chunkDurationMs = (pcmArray.length / 16000) * 1000;
-                    
+
                     // Small delay to maintain proper timing
                     await new Promise(resolve => setTimeout(resolve, chunkDurationMs));
-    
+
                 } catch (error) {
                     console.error(`Session ${session.id}: Error sending audio chunk:`, error);
                     stopFunction();
                     return;
                 }
             }
-    
+
             // Mark streaming as complete when queue is empty
             if (audioQueue.length === 0) {
                 isStreaming = false;
                 console.log(`Session ${session.id}: Audio queue processed completely`);
-                
+
                 // Small delay before cleanup to ensure all audio is played
                 setTimeout(() => {
                     if (audioQueue.length === 0) {
@@ -1147,7 +1280,7 @@ const audioUtils = {
                 }, 100);
             }
         }
-    
+
         // Initialize the audio track first
         initializeAudioTrack()
             .then(() => {
@@ -1157,7 +1290,7 @@ const audioUtils = {
                 console.error(`Session ${session.id}: Failed to initialize audio streaming:`, error);
                 stopFunction();
             });
-    
+
         return addAudioChunk;
     },
 
@@ -1356,7 +1489,7 @@ const aiProcessing = {
             console.error(`Session ${sessionId}: No text provided for synthesis.`);
             return null;
         }
-    
+
         const streamToBuffer = async (stream) => {
             const chunks = [];
             for await (const chunk of stream) {
@@ -1364,9 +1497,9 @@ const aiProcessing = {
             }
             return Buffer.concat(chunks);
         };
-    
+
         const startTime = Date.now();
-    
+
         try {
             const response = await deepgramTts.speak.request(
                 { text },
@@ -1376,35 +1509,35 @@ const aiProcessing = {
                     // ✅ DO NOT include `container`
                 }
             );
-    
+
             const stream = await response.getStream();
-    
+
             if (!stream) {
                 throw new Error('Failed to get audio stream from Deepgram response');
             }
-    
+
             const mp3Buffer = await streamToBuffer(stream);
-    
+
             const latency = Date.now() - startTime;
             console.log(`Session ${sessionId}: Deepgram TTS Latency: ${latency}ms`);
             console.log(`Session ${sessionId}: MP3 Buffer size: ${mp3Buffer.length} bytes`);
-    
+
             return mp3Buffer;
-    
+
         } catch (err) {
             console.error(`Session ${sessionId}: Speech synthesis error with Deepgram:`, err);
             throw err;
         }
     },
-    
+
     async synthesizeSpeechStream(text, sessionId, onChunkCallback) {
         if (!text) {
             console.error(`Session ${sessionId}: No text provided for synthesis.`);
             return null;
         }
-    
+
         const startTime = Date.now();
-    
+
         try {
             // Use Live TTS API instead of standard request
             const dgConnection = deepgramTts.speak.live({
@@ -1413,31 +1546,31 @@ const aiProcessing = {
                 sample_rate: 16000,  // Match your LiveKit sample rate
                 container: 'none',
             });
-    
+
             let totalChunks = 0;
             let firstChunkTime = null;
             let leftoverBuffer = null;
-    
+
             // Set up event handlers
             dgConnection.on(LiveTTSEvents.Open, () => {
                 console.log(`Session ${sessionId}: Live TTS connection opened`);
-                
+
                 // Send text data for TTS synthesis
                 dgConnection.sendText(text);
-                
+
                 // Send Flush message to the server after sending the text
                 dgConnection.flush();
             });
-    
+
             dgConnection.on(LiveTTSEvents.Audio, async (data) => {
                 if (!firstChunkTime) {
                     firstChunkTime = Date.now() - startTime;
                     console.log(`Session ${sessionId}: First chunk received in ${firstChunkTime}ms`);
                 }
-    
+
                 // Convert chunk to Uint8Array for easier manipulation
                 const chunkArray = new Uint8Array(data);
-                
+
                 // Combine with leftover bytes from previous chunk
                 let combinedArray;
                 if (leftoverBuffer) {
@@ -1448,14 +1581,14 @@ const aiProcessing = {
                 } else {
                     combinedArray = chunkArray;
                 }
-    
+
                 // If odd number of bytes, save the last byte for next chunk
                 let bytesToProcess = combinedArray.length;
                 if (bytesToProcess % 2 !== 0) {
                     leftoverBuffer = new Uint8Array([combinedArray[bytesToProcess - 1]]);
                     bytesToProcess -= 1;
                 }
-    
+
                 // Only process if we have bytes to process
                 if (bytesToProcess > 0) {
                     // Create Int16Array from even number of bytes
@@ -1465,18 +1598,18 @@ const aiProcessing = {
                             combinedArray.byteOffset + bytesToProcess
                         )
                     );
-    
+
                     totalChunks++;
                     // console.log(`Session ${sessionId}: Processing chunk ${totalChunks}, size: ${pcmArray.length} samples`);
-    
+
                     // Send chunk immediately to LiveKit
                     await onChunkCallback(pcmArray);
                 }
             });
-    
+
             dgConnection.on(LiveTTSEvents.Flushed, async () => {
                 console.log(`Session ${sessionId}: Deepgram Flushed`);
-                
+
                 // Handle any remaining leftover bytes
                 if (leftoverBuffer) {
                     console.log(`Session ${sessionId}: Processing final leftover byte`);
@@ -1484,36 +1617,36 @@ const aiProcessing = {
                     const finalArray = new Uint8Array(2);
                     finalArray.set(leftoverBuffer);
                     finalArray[1] = 0;
-                    
+
                     const finalPcmArray = new Int16Array(finalArray.buffer);
                     await onChunkCallback(finalPcmArray);
                 }
-    
+
                 const totalLatency = Date.now() - startTime;
                 console.log(`Session ${sessionId}: Live TTS streaming completed. Total time: ${totalLatency}ms, Total chunks: ${totalChunks}`);
-                
+
                 // Close the connection
                 dgConnection.requestClose();
             });
-    
+
             dgConnection.on(LiveTTSEvents.Close, () => {
                 console.log(`Session ${sessionId}: Live TTS connection closed`);
             });
-    
+
             dgConnection.on(LiveTTSEvents.Error, (err) => {
                 console.error(`Session ${sessionId}: Live TTS error:`, err);
                 throw err;
             });
-    
+
             dgConnection.on(LiveTTSEvents.Metadata, (data) => {
                 console.log(`Session ${sessionId}: Metadata received:`, data);
             });
-    
+
             return new Promise((resolve, reject) => {
                 dgConnection.on(LiveTTSEvents.Flushed, () => resolve(true));
                 dgConnection.on(LiveTTSEvents.Error, reject);
             });
-    
+
         } catch (err) {
             console.error(`Session ${sessionId}: Live TTS streaming error:`, err);
             throw err;
@@ -1522,25 +1655,25 @@ const aiProcessing = {
 
     async processTextToSpeech(processedText, session) {
         const TTSTimeStart = Date.now();
-        
+
         try {
             // Initialize streaming to LiveKit (same as before)
             const addAudioChunk = audioUtils.streamPCMAudioToLiveKit(
-                session.room, 
+                session.room,
                 session,
                 () => {
                     const TTSTime = Date.now() - TTSTimeStart;
                     console.log(`Session ${session.id}: Complete TTS pipeline time: ${TTSTime}ms`);
                 }
             );
-    
+
             // Start Live TTS streaming synthesis
             await aiProcessing.synthesizeSpeechStream(
-                processedText, 
-                session.id, 
+                processedText,
+                session.id,
                 addAudioChunk
             );
-    
+
         } catch (error) {
             console.error(`Session ${session.id}: Live TTS streaming failed:`, error);
             throw error;
@@ -1901,32 +2034,49 @@ function connectToDeepgram(session) {
                     { role: 'user', content: session.currentUserUtterance }
                 ];
                 // console.log(messagesForDetection);
-                let turnTimeStart = Date.now()
+                // let turnTimeStart = Date.now()
 
-                turnDetector.CheckEndOfTurn({ messages: messagesForDetection }, (err, response) => {
-                    (async () => {
-                        let turnTime = Date.now() - turnTimeStart
-                        console.log("turnTime", turnTime)
-                        if (err) {
-                            console.error('❌ gRPC Error:', err);
-                        } else {
-                            if (response.end_of_turn) {
-                                console.log(`Session ${session.id}: ✅ Turn complete. Waiting for more input.`);
-                                if (!session.isVadSpeechActive) {
-                                    await handleTurnCompletion(session);
-                                }
-                            } else {
-                                console.log(`Session ${session.id}: ⏳ Turn NOT complete. Waiting for more input.`);
-                                session.isTalking = false
-                                setTimeout(async () => {
-                                    if (!session.isTalking && !session.isVadSpeechActive) {
-                                        await handleTurnCompletion(session)
-                                    }
-                                }, 1000)
-                            }
+                // turnDetector.CheckEndOfTurn({ messages: messagesForDetection }, (err, response) => {
+                //     (async () => {
+                //         let turnTime = Date.now() - turnTimeStart
+                //         console.log("turnTime", turnTime)
+                //         if (err) {
+                //             console.error('❌ gRPC Error:', err);
+                //         } else {
+                //             if (response.end_of_turn) {
+                //                 console.log(`Session ${session.id}: ✅ Turn complete. Waiting for more input.`);
+                //                 if (!session.isVadSpeechActive) {
+                //                     await handleTurnCompletion(session);
+                //                 }
+                //             } else {
+                //                 console.log(`Session ${session.id}: ⏳ Turn NOT complete. Waiting for more input.`);
+                //                 session.isTalking = false
+                //                 setTimeout(async () => {
+                //                     if (!session.isTalking && !session.isVadSpeechActive) {
+                //                         await handleTurnCompletion(session)
+                //                     }
+                //                 }, 1000)
+                //             }
+                //         }
+                //     })();
+                // });
+                let end = detectTurnEnd(session.currentUserUtterance)
+                console.log("end", end)
+                if (end) {
+                    if (!session.isVadSpeechActive) {
+                        await handleTurnCompletion(session);
+                    }
+                }
+                else {
+                    // console.log("turn not complete")
+                    session.isTalking = false
+
+                    setTimeout(async () => {
+                        if (!session.isTalking && !session.isVadSpeechActive) {
+                            await handleTurnCompletion(session)
                         }
-                    })();
-                });
+                    }, 1000)
+                }
             } else {
                 if (transcript.trim() && transcript !== session.lastInterimTranscript) {
                     session.isSpeaking = true;
