@@ -20,7 +20,7 @@ class TurnDetectorServicer(turn_pb2_grpc.TurnDetectorServicer):
             return turn_pb2.TurnResponse(end_of_turn=False)
 
 def serve():
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=1))
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
     turn_pb2_grpc.add_TurnDetectorServicer_to_server(TurnDetectorServicer(), server)
     server.add_insecure_port('[::]:50051')
     server.start()

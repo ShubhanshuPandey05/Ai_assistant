@@ -5,7 +5,7 @@ from typing import Any, List, Dict, Tuple
 
 class ConversationTurnDetector:
     HF_MODEL_ID = "HuggingFaceTB/SmolLM2-360M-Instruct"
-    MAX_HISTORY = 4
+    MAX_HISTORY = 2
     DEFAULT_THRESHOLD = 0.03
 
     def __init__(self, threshold: float = DEFAULT_THRESHOLD):
@@ -14,6 +14,12 @@ class ConversationTurnDetector:
         self.model = AutoModelForCausalLM.from_pretrained(self.HF_MODEL_ID)
         self.model.to("cpu")
         self.model.eval()
+        self._warmup()
+        
+    def _warmup(self):
+        dummy = self.tokenizer("Hello", return_tensors="pt").to(self.model.device)
+        with torch.no_grad():
+            self.model(**dummy)
 
     def _convert_messages_to_chatml(self, messages: List[Dict[str, Any]]) -> str:
         """
@@ -48,7 +54,7 @@ class ConversationTurnDetector:
         next_token_logits = outputs.logits[0, -1, :]
         log_softmax_probs = torch.nn.functional.log_softmax(next_token_logits, dim=-1)
 
-        k = 20
+        k = 5
         top_logprobs_vals, top_logprobs_ids = torch.topk(log_softmax_probs, k)
 
         top_logprobs_dict = {}

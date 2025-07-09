@@ -1981,7 +1981,7 @@ function connectToDeepgram(session) {
     }
 
     session.dgSocket = new WebSocket(
-        `wss://api.deepgram.com/v1/listen?encoding=linear16&sample_rate=16000&channels=1&model=nova-3&language=en&punctuate=true&interim_results=true&endpointing=200`,
+        `wss://api.deepgram.com/v1/listen?encoding=linear16&sample_rate=16000&channels=1&model=nova-3&language=en&punctuate=true&interim_results=true&endpointing=50`,
         ['token', `${process.env.DEEPGRAM_API}`]
     );
 
