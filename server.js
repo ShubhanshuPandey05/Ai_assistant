@@ -786,41 +786,50 @@ class SessionManager {
                     role: 'assistant',
                     content: `Hello ${user.Name} You are speaking to an AI assistant for Gautam Garment.`
                 }],
-                prompt: `You are a helpful AI assistant for the Shopify store "Gautam Garment". The user Name is ${user.Name}  You have access to several tools (functions) that let you fetch and provide real-time information about products, orders, and customers from the store.
+                //                 prompt: `You are a helpful AI assistant for the Shopify store "Gautam Garment". The user Name is ${user.Name}  You have access to several tools (functions) that let you fetch and provide real-time information about products, orders, and customers from the store.
 
-Your Tasks:
+                // Your Tasks:
 
-Understand the user's message and intent.
-If you need specific store data (like product lists, order details, or customer info), use the available tools by calling the appropriate function with the required parameters.
-After receiving tool results, use them to generate a helpful, concise, and accurate response for the user.
-Always return your answer in JSON format with two fields:
-"response": your textual reply for the user
-"output_channel": the medium for your response
+                // Understand the user's message and intent.
+                // If you need specific store data (like product lists, order details, or customer info), use the available tools by calling the appropriate function with the required parameters.
+                // After receiving tool results, use them to generate a helpful, concise, and accurate response for the user.
+                // Always return your answer in JSON format with two fields:
+                // "response": your textual reply for the user
+                // "output_channel": the medium for your response
 
-Example Output:
+                // Example Output:
+                // {
+                // "response": "Here are the top 5 products from Gautam Garment.",
+                // "output_channel": "audio"
+                // }
+
+                // User Input Format:
+                // The user's message will be a JSON object with "message" and "input_channel", for example:
+                // {
+                // "message": "Show me my recent orders",
+                // "input_channel": "audio"
+                // }
+
+                // Available Tools (functions):
+                // getAllProducts: Get a list of all products in the store.
+                // getUserDetailsByPhoneNo: Get customer details by phone number.
+                // getAllOrders: Get a list of all orders.
+                // getOrderById: Get details for a specific order by its ID.
+
+                // Instructions:
+                // If a user's request requires store data, call the relevant tool first, then use its result in your reply.
+                // If the user asks a general question or your response does not require real-time store data, answer directly.
+                // ***Always use the user's input_channel for your response if it matches the available ***
+                // The store name is "Gautam Garment"—refer to it by name in your responses when appropriate.`,
+                prompt: `You are an AI assistant for "Gautam Garment" Shopify store. 
+**Process:**
+1. Understand user intent
+2. Use tools if you need store data (products, orders, customers)
+3. Respond in JSON format:
 {
-"response": "Here are the top 5 products from Gautam Garment.",
+"response": "your answer here",
 "output_channel": "audio"
-}
-
-User Input Format:
-The user's message will be a JSON object with "message" and "input_channel", for example:
-{
-"message": "Show me my recent orders",
-"input_channel": "audio"
-}
-
-Available Tools (functions):
-getAllProducts: Get a list of all products in the store.
-getUserDetailsByPhoneNo: Get customer details by phone number.
-getAllOrders: Get a list of all orders.
-getOrderById: Get details for a specific order by its ID.
-
-Instructions:
-If a user's request requires store data, call the relevant tool first, then use its result in your reply.
-If the user asks a general question or your response does not require real-time store data, answer directly.
-***Always use the user's input_channel for your response if it matches the available ***
-The store name is "Gautam Garment"—refer to it by name in your responses when appropriate.`,
+} `,
                 metrics: { llm: 0, stt: 0, tts: 0 },
 
                 ffmpegProcess: null,
@@ -871,41 +880,16 @@ The store name is "Gautam Garment"—refer to it by name in your responses when 
                 role: 'assistant',
                 content: "Hello! You are speaking to an AI assistant for Gautam Garment."
             }],
-            prompt: `You are a helpful AI assistant for the Shopify store "Gautam Garment". You have access to several tools (functions) that let you fetch and provide real-time information about products, orders, and customers from the store.
-
-Your Tasks:
-
-Understand the user's message and intent.
-If you need specific store data (like product lists, order details, or customer info), use the available tools by calling the appropriate function with the required parameters.
-After receiving tool results, use them to generate a helpful, concise, and accurate response for the user.
-Always return your answer in JSON format with two fields:
-"response": your textual reply for the user
-"output_channel": the medium for your response
-
-Example Output:
+            //             prompt: `You are a helpful AI assistant for the Shopify store "Gautam Garment". You have access to several tools (functions) that let you fetch and provide real-time information about products, orders, and customers from the store.
+            prompt: `You are an AI assistant for "Gautam Garment" Shopify store. 
+**Process:**
+1. Understand user intent
+2. Use tools if you need store data (products, orders, customers)
+3. Respond in JSON format:
 {
-"response": "Here are the top 5 products from Gautam Garment.",
+"response": "your answer here",
 "output_channel": "audio"
-}
-
-User Input Format:
-The user's message will be a JSON object with "message" and "input_channel", for example:
-{
-"message": "Show me my recent orders",
-"input_channel": "audio"
-}
-
-Available Tools (functions):
-getAllProducts: Get a list of all products in the store.
-getUserDetailsByPhoneNo: Get customer details by phone number.
-getAllOrders: Get a list of all orders.
-getOrderById: Get details for a specific order by its ID.
-
-Instructions:
-If a user's request requires store data, call the relevant tool first, then use its result in your reply.
-If the user asks a general question or your response does not require real-time store data, answer directly.
-***Always use the user's input_channel for your response if it matches the available ***
-The store name is "Gautam Garment"—refer to it by name in your responses when appropriate.`,
+} `,
             metrics: { llm: 0, stt: 0, tts: 0 },
 
             ffmpegProcess: null,
@@ -990,7 +974,7 @@ const audioUtils = {
             });
 
             ffmpeg.stderr.on('data', (data) => {
-                // console.log(`Session ${sessionId}: FFmpeg stderr for conversion:`, data.toString());
+                // console.log(`Session ${ sessionId }: FFmpeg stderr for conversion: `, data.toString());
             });
 
             ffmpeg.on('close', (code) => {
@@ -998,12 +982,12 @@ const audioUtils = {
                     resolve(mulawBuffer);
                 } else {
                     console.error(`Session ${sessionId}: FFmpeg process failed with code ${code} during MP3 to Mulaw conversion.`);
-                    reject(new Error(`ffmpeg process failed with code ${code}`));
+                    reject(new Error(`ffmpeg process failed with code ${code} `));
                 }
             });
 
             ffmpeg.on('error', (err) => {
-                console.error(`Session ${sessionId}: FFmpeg process error during MP3 to Mulaw conversion:`, err);
+                console.error(`Session ${sessionId}: FFmpeg process error during MP3 to Mulaw conversion: `, err);
                 reject(err);
             });
 
@@ -1045,8 +1029,8 @@ const audioUtils = {
                     console.log(`✅ MP3 conversion successful: ${pcmArray.length} samples`);
                     resolve(pcmArray);
                 } else {
-                    console.error(`❌ FFmpeg error: ${errorOutput}`);
-                    reject(new Error(`FFmpeg exited with code ${code}: ${errorOutput}`));
+                    console.error(`❌ FFmpeg error: ${errorOutput} `);
+                    reject(new Error(`FFmpeg exited with code ${code}: ${errorOutput} `));
                 }
             });
 
@@ -1087,7 +1071,7 @@ const audioUtils = {
                     room.localParticipant.unpublishTrack(track);
                     console.log(`Session ${session.id}: Track unpublished`);
                 } catch (error) {
-                    console.error(`Session ${session.id}: Error unpublishing track:`, error);
+                    console.error(`Session ${session.id}: Error unpublishing track: `, error);
                 }
             }
         };
@@ -1105,9 +1089,9 @@ const audioUtils = {
                 });
 
                 isPublished = true;
-                console.log(`🎵 Track published to room: ${room}`);
+                console.log(`🎵 Track published to room: ${room} `);
             } catch (error) {
-                console.error(`Session ${session.id}: Error initializing audio track:`, error);
+                console.error(`Session ${session.id}: Error initializing audio track: `, error);
                 stopFunction();
                 throw error;
             }
@@ -1144,7 +1128,7 @@ const audioUtils = {
                 // Send the frame to the audio source
                 await source.captureFrame(audioFrame);
 
-                // console.log(`Session ${session.id}: Sent audio chunk ${offset}-${offset + chunk.length}`);
+                // console.log(`Session ${ session.id }: Sent audio chunk ${ offset } -${ offset + chunk.length } `);
 
                 offset += CHUNK_SIZE_MULAW;
 
@@ -1159,7 +1143,7 @@ const audioUtils = {
                 }, chunkDurationMs);
 
             } catch (error) {
-                console.error(`Session ${session.id}: Error sending audio chunk:`, error);
+                console.error(`Session ${session.id}: Error sending audio chunk: `, error);
                 stopFunction();
             }
         }
@@ -1171,7 +1155,7 @@ const audioUtils = {
                 sendChunk();
             })
             .catch(error => {
-                console.error(`Session ${session.id}: Failed to initialize audio streaming:`, error);
+                console.error(`Session ${session.id}: Failed to initialize audio streaming: `, error);
                 stopFunction();
             });
     },
@@ -1200,7 +1184,7 @@ const audioUtils = {
                     room.localParticipant.unpublishTrack(track);
                     console.log(`Session ${session.id}: Track unpublished`);
                 } catch (error) {
-                    console.error(`Session ${session.id}: Error unpublishing track:`, error);
+                    console.error(`Session ${session.id}: Error unpublishing track: `, error);
                 }
             }
 
@@ -1220,9 +1204,9 @@ const audioUtils = {
                 });
 
                 isPublished = true;
-                console.log(`🎵 Track published to room: ${room}`);
+                console.log(`🎵 Track published to room: ${room} `);
             } catch (error) {
-                console.error(`Session ${session.id}: Error initializing audio track:`, error);
+                console.error(`Session ${session.id}: Error initializing audio track: `, error);
                 stopFunction();
                 throw error;
             }
@@ -1252,7 +1236,7 @@ const audioUtils = {
                     // Send the frame to the audio source
                     await source.captureFrame(audioFrame);
 
-                    // console.log(`Session ${session.id}: Sent audio chunk, size: ${pcmArray.length} samples`);
+                    // console.log(`Session ${ session.id }: Sent audio chunk, size: ${ pcmArray.length } samples`);
 
                     // Calculate delay based on chunk duration
                     const chunkDurationMs = (pcmArray.length / 16000) * 1000;
@@ -1261,7 +1245,7 @@ const audioUtils = {
                     await new Promise(resolve => setTimeout(resolve, chunkDurationMs));
 
                 } catch (error) {
-                    console.error(`Session ${session.id}: Error sending audio chunk:`, error);
+                    console.error(`Session ${session.id}: Error sending audio chunk: `, error);
                     stopFunction();
                     return;
                 }
@@ -1287,7 +1271,7 @@ const audioUtils = {
                 console.log(`Session ${session.id}: Audio track initialized, ready for streaming...`);
             })
             .catch(error => {
-                console.error(`Session ${session.id}: Failed to initialize audio streaming:`, error);
+                console.error(`Session ${session.id}: Failed to initialize audio streaming: `, error);
                 stopFunction();
             });
 
@@ -1336,7 +1320,7 @@ const audioUtils = {
                 // Schedule next chunk slightly faster than chunk duration for continuous flow
                 setTimeout(sendChunk, 100); // 180ms delay for 200ms chunk
             } catch (error) {
-                console.error(`Session ${session.id}: Error sending audio chunk:`, error);
+                console.error(`Session ${session.id}: Error sending audio chunk: `, error);
                 stopFunction(); // Stop on error
             }
         }
@@ -1427,7 +1411,7 @@ const aiProcessing = {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NTE3ODQ3NDgsImh1bWFuIjoic3RyaW5nIiwicHJvamVjdCI6IjkzYTUyY2Y4LTNmYTQtNDhjYi1hYTMyLWJiMzkxNDQxZTI4NSJ9.qJq78UrY86Hf-i6oUN6PPiSXgn51aewbSNus2-mGC6Q`,
+                    'Authorization': `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NTE3ODQ3NDgsImh1bWFuIjoic3RyaW5nIiwicHJvamVjdCI6IjkzYTUyY2Y4LTNmYTQtNDhjYi1hYTMyLWJiMzkxNDQxZTI4NSJ9.qJq78UrY86Hf - i6oUN6PPiSXgn51aewbSNus2 - mGC6Q`,
                 },
                 body: JSON.stringify({
                     text,
@@ -1436,11 +1420,11 @@ const aiProcessing = {
             });
 
             const latency = Date.now() - startTime;
-            console.log(`Session ${sessionId}: TTS Latency: ${latency}ms`);
+            console.log(`Session ${sessionId}: TTS Latency: ${latency} ms`);
 
             if (!response.ok) {
                 const errorText = await response.text();
-                throw new Error(`❌ Gabber API failed [${response.status}]: ${errorText}`);
+                throw new Error(`❌ Gabber API failed[${response.status}]: ${errorText} `);
             }
 
             const arrayBuffer = await response.arrayBuffer();
@@ -1452,7 +1436,7 @@ const aiProcessing = {
                 ? raw.toString()
                 : JSON.stringify(raw);
 
-            console.error(`Session ${sessionId}: Speech synthesis error with Gabber:`, decoded || err.message);
+            console.error(`Session ${sessionId}: Speech synthesis error with Gabber: `, decoded || err.message);
             throw err;
         }
     },
@@ -1474,12 +1458,12 @@ const aiProcessing = {
             if (data.AudioStream) {
                 const audioBuffer = Buffer.from(await data.AudioStream.transformToByteArray());
                 const latency = Date.now() - startTime;
-                console.log(`Session ${sessionId}: TTS Latency: ${latency}ms`);
+                console.log(`Session ${sessionId}: TTS Latency: ${latency} ms`);
                 return audioBuffer;
             }
             throw new Error("AudioStream not found in Polly response.");
         } catch (err) {
-            console.error(`Session ${sessionId}: Speech synthesis error with Polly:`, err);
+            console.error(`Session ${sessionId}: Speech synthesis error with Polly: `, err);
             throw err;
         }
     },
@@ -1519,13 +1503,13 @@ const aiProcessing = {
             const mp3Buffer = await streamToBuffer(stream);
 
             const latency = Date.now() - startTime;
-            console.log(`Session ${sessionId}: Deepgram TTS Latency: ${latency}ms`);
+            console.log(`Session ${sessionId}: Deepgram TTS Latency: ${latency} ms`);
             console.log(`Session ${sessionId}: MP3 Buffer size: ${mp3Buffer.length} bytes`);
 
             return mp3Buffer;
 
         } catch (err) {
-            console.error(`Session ${sessionId}: Speech synthesis error with Deepgram:`, err);
+            console.error(`Session ${sessionId}: Speech synthesis error with Deepgram: `, err);
             throw err;
         }
     },
@@ -1565,7 +1549,7 @@ const aiProcessing = {
             dgConnection.on(LiveTTSEvents.Audio, async (data) => {
                 if (!firstChunkTime) {
                     firstChunkTime = Date.now() - startTime;
-                    console.log(`Session ${sessionId}: First chunk received in ${firstChunkTime}ms`);
+                    console.log(`Session ${sessionId}: First chunk received in ${firstChunkTime} ms`);
                 }
 
                 // Convert chunk to Uint8Array for easier manipulation
@@ -1600,7 +1584,7 @@ const aiProcessing = {
                     );
 
                     totalChunks++;
-                    // console.log(`Session ${sessionId}: Processing chunk ${totalChunks}, size: ${pcmArray.length} samples`);
+                    // console.log(`Session ${ sessionId }: Processing chunk ${ totalChunks }, size: ${ pcmArray.length } samples`);
 
                     // Send chunk immediately to LiveKit
                     await onChunkCallback(pcmArray);
@@ -1623,7 +1607,7 @@ const aiProcessing = {
                 }
 
                 const totalLatency = Date.now() - startTime;
-                console.log(`Session ${sessionId}: Live TTS streaming completed. Total time: ${totalLatency}ms, Total chunks: ${totalChunks}`);
+                console.log(`Session ${sessionId}: Live TTS streaming completed.Total time: ${totalLatency} ms, Total chunks: ${totalChunks} `);
 
                 // Close the connection
                 dgConnection.requestClose();
@@ -1634,12 +1618,12 @@ const aiProcessing = {
             });
 
             dgConnection.on(LiveTTSEvents.Error, (err) => {
-                console.error(`Session ${sessionId}: Live TTS error:`, err);
+                console.error(`Session ${sessionId}: Live TTS error: `, err);
                 throw err;
             });
 
             dgConnection.on(LiveTTSEvents.Metadata, (data) => {
-                console.log(`Session ${sessionId}: Metadata received:`, data);
+                console.log(`Session ${sessionId}: Metadata received: `, data);
             });
 
             return new Promise((resolve, reject) => {
@@ -1648,7 +1632,7 @@ const aiProcessing = {
             });
 
         } catch (err) {
-            console.error(`Session ${sessionId}: Live TTS streaming error:`, err);
+            console.error(`Session ${sessionId}: Live TTS streaming error: `, err);
             throw err;
         }
     },
@@ -1663,7 +1647,7 @@ const aiProcessing = {
                 session,
                 () => {
                     const TTSTime = Date.now() - TTSTimeStart;
-                    console.log(`Session ${session.id}: Complete TTS pipeline time: ${TTSTime}ms`);
+                    console.log(`Session ${session.id}: Complete TTS pipeline time: ${TTSTime} ms`);
                 }
             );
 
@@ -1675,7 +1659,7 @@ const aiProcessing = {
             );
 
         } catch (error) {
-            console.error(`Session ${session.id}: Live TTS streaming failed:`, error);
+            console.error(`Session ${session.id}: Live TTS streaming failed: `, error);
             throw error;
         }
     }
@@ -1794,14 +1778,14 @@ app.post('/create-room', async (req, res) => {
 // Setup room event handlers
 function setupRoomEventHandlers(room, session) {
     room.on(RoomEvent.ParticipantConnected, (participant) => {
-        console.log(`Session ${session.id}: Participant connected: ${participant.identity}`);
+        console.log(`Session ${session.id}: Participant connected: ${participant.identity} `);
 
         // Initialize audio processing for this participant
         setupAudioProcessingForParticipant(participant, session);
     });
 
     room.on(RoomEvent.ParticipantDisconnected, (participant) => {
-        console.log(`Session ${session.id}: Participant disconnected: ${participant.identity}`);
+        console.log(`Session ${session.id}: Participant disconnected: ${participant.identity} `);
     });
 
     room.on(RoomEvent.Disconnected, () => {
@@ -1823,7 +1807,7 @@ function setupRoomEventHandlers(room, session) {
 async function handleChatInput(message, participant, session) {
     try {
         // if (!payload || payload.length === 0) {
-        //     console.warn(`⚠️ Received empty payload from ${participant.identity}`);
+        //     console.warn(`⚠️ Received empty payload from ${ participant.identity } `);
         //     return;
         // }
         // console.log("payload", payload)
@@ -1831,7 +1815,7 @@ async function handleChatInput(message, participant, session) {
         const data = JSON.parse(message);
         console.log("data", data)
         if (data.type === 'chat') {
-            console.log(`💬 Chat from ${participant.identity}: ${data.content}`);
+            console.log(`💬 Chat from ${participant.identity}: ${data.content} `);
 
             // Optionally: send an AI response back
             handleIncomingChat(data.content, participant, session);
@@ -1881,7 +1865,7 @@ async function handleIncomingChat(message, participant, session) {
 
 async function handleTrackSubscribed(track, publication, participant, session) {
     if (track.kind === TrackKind.KIND_AUDIO) {
-        console.log(`Subscribed to ${participant.identity}'s audio track`);
+        console.log(`Subscribed to ${participant.identity} 's audio track`);
 
         const stream = new AudioStream(track,
             {
