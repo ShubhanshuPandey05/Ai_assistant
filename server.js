@@ -471,7 +471,7 @@ const CONFIG = {
     MAX_RECONNECT_ATTEMPTS: 5,
     RECONNECT_DELAY: 1000,
     AUDIO_CHUNK_SIZE: 1600,
-    DEEPGRAM_STREAM_CHUNK_SIZE: 800,
+    DEEPGRAM_STREAM_CHUNK_SIZE: 400,
     SAMPLE_RATE: 16000,
     AUDIO_SAMPLE_RATE: 8000,
     POLLY_VOICE_ID: "Joanna",
@@ -786,7 +786,7 @@ class SessionManager {
                     role: 'assistant',
                     content: `Hello ${user.Name} You are speaking to an AI assistant for Gautam Garment.`
                 }],
-                //                 prompt: `You are a helpful AI assistant for the Shopify store "Gautam Garment". The user Name is ${user.Name}  You have access to several tools (functions) that let you fetch and provide real-time information about products, orders, and customers from the store.
+                //prompt: `You are a helpful AI assistant for the Shopify store "Gautam Garment". The user Name is ${user.Name}  You have access to several tools (functions) that let you fetch and provide real-time information about products, orders, and customers from the store.
 
                 // Your Tasks:
 
@@ -2018,49 +2018,49 @@ function connectToDeepgram(session) {
                     { role: 'user', content: session.currentUserUtterance }
                 ];
                 // console.log(messagesForDetection);
-                // let turnTimeStart = Date.now()
+                let turnTimeStart = Date.now()
 
-                // turnDetector.CheckEndOfTurn({ messages: messagesForDetection }, (err, response) => {
-                //     (async () => {
-                //         let turnTime = Date.now() - turnTimeStart
-                //         console.log("turnTime", turnTime)
-                //         if (err) {
-                //             console.error('❌ gRPC Error:', err);
-                //         } else {
-                //             if (response.end_of_turn) {
-                //                 console.log(`Session ${session.id}: ✅ Turn complete. Waiting for more input.`);
-                //                 if (!session.isVadSpeechActive) {
-                //                     await handleTurnCompletion(session);
-                //                 }
-                //             } else {
-                //                 console.log(`Session ${session.id}: ⏳ Turn NOT complete. Waiting for more input.`);
-                //                 session.isTalking = false
-                //                 setTimeout(async () => {
-                //                     if (!session.isTalking && !session.isVadSpeechActive) {
-                //                         await handleTurnCompletion(session)
-                //                     }
-                //                 }, 1000)
-                //             }
-                //         }
-                //     })();
-                // });
-                let end = detectTurnEnd(session.currentUserUtterance)
-                console.log("end", end)
-                if (end) {
-                    if (!session.isVadSpeechActive) {
-                        await handleTurnCompletion(session);
-                    }
-                }
-                else {
-                    // console.log("turn not complete")
-                    session.isTalking = false
-
-                    setTimeout(async () => {
-                        if (!session.isTalking && !session.isVadSpeechActive) {
-                            await handleTurnCompletion(session)
+                turnDetector.CheckEndOfTurn({ messages: messagesForDetection }, (err, response) => {
+                    (async () => {
+                        let turnTime = Date.now() - turnTimeStart
+                        console.log("turnTime", turnTime)
+                        if (err) {
+                            console.error('❌ gRPC Error:', err);
+                        } else {
+                            if (response.end_of_turn) {
+                                console.log(`Session ${session.id}: ✅ Turn complete. Waiting for more input.`);
+                                if (!session.isVadSpeechActive) {
+                                    await handleTurnCompletion(session);
+                                }
+                            } else {
+                                console.log(`Session ${session.id}: ⏳ Turn NOT complete. Waiting for more input.`);
+                                session.isTalking = false
+                                setTimeout(async () => {
+                                    if (!session.isTalking && !session.isVadSpeechActive) {
+                                        await handleTurnCompletion(session)
+                                    }
+                                }, 1000)
+                            }
                         }
-                    }, 1000)
-                }
+                    })();
+                });
+                // let end = detectTurnEnd(session.currentUserUtterance)
+                // console.log("end", end)
+                // if (end) {
+                //     if (!session.isVadSpeechActive) {
+                //         await handleTurnCompletion(session);
+                //     }
+                // }
+                // else {
+                //     // console.log("turn not complete")
+                //     session.isTalking = false
+
+                //     setTimeout(async () => {
+                //         if (!session.isTalking && !session.isVadSpeechActive) {
+                //             await handleTurnCompletion(session)
+                //         }
+                //     }, 1000)
+                // }
             } else {
                 if (transcript.trim() && transcript !== session.lastInterimTranscript) {
                     session.isSpeaking = true;
