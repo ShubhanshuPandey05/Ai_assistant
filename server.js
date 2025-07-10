@@ -741,7 +741,7 @@ class SessionManager {
         this.sessions = new Map(); // Stores active sessions by roomName
     }
 
-    createSession(roomName, userData) {
+    createSession(roomName, userData, prompt, tool) {
         let user = userStorage.findUser(userData)
         // console.log(user)
         if (user) {
@@ -821,15 +821,7 @@ class SessionManager {
                 // If the user asks a general question or your response does not require real-time store data, answer directly.
                 // ***Always use the user's input_channel for your response if it matches the available ***
                 // The store name is "Gautam Garment"—refer to it by name in your responses when appropriate.`,
-                prompt: `You are an AI assistant for "Gautam Garment" Shopify store. 
-**Process:**
-1. Understand user intent
-2. Use tools if you need store data (products, orders, customers)
-3. Respond in JSON format:
-{
-"response": "your answer here",
-"output_channel": "audio"
-} `,
+                prompt: prompt,
                 metrics: { llm: 0, stt: 0, tts: 0 },
 
                 ffmpegProcess: null,
@@ -839,7 +831,7 @@ class SessionManager {
                 isVadSpeechActive: false,
                 currentUserUtterance: '',
                 isTalking: false,
-                tools: [],
+                tools: tool,
                 denoiser: null,
                 remainder: null
             };
@@ -881,15 +873,7 @@ class SessionManager {
                 content: "Hello! You are speaking to an AI assistant for Gautam Garment."
             }],
             //             prompt: `You are a helpful AI assistant for the Shopify store "Gautam Garment". You have access to several tools (functions) that let you fetch and provide real-time information about products, orders, and customers from the store.
-            prompt: `You are an AI assistant for "Gautam Garment" Shopify store. 
-**Process:**
-1. Understand user intent
-2. Use tools if you need store data (products, orders, customers)
-3. Respond in JSON format:
-{
-"response": "your answer here",
-"output_channel": "audio"
-} `,
+            prompt: prompt,
             metrics: { llm: 0, stt: 0, tts: 0 },
 
             ffmpegProcess: null,
@@ -899,7 +883,7 @@ class SessionManager {
             isVadSpeechActive: false,
             currentUserUtterance: '',
             isTalking: false,
-            tools: [],
+            tools: tool,
             denoiser: null,
             remainder: null
         };
@@ -1729,7 +1713,7 @@ app.post('/get-token', async (req, res) => {
 // Create room and join as agent
 app.post('/create-room', async (req, res) => {
     try {
-        const { roomName, userData } = req.body;
+        const { roomName, userData, prompt, tool } = req.body;
 
         if (!roomName) {
             return res.status(400).json({ error: 'roomName is required' });
@@ -1758,7 +1742,7 @@ app.post('/create-room', async (req, res) => {
         });
 
         // Create session for this room
-        const session = sessionManager.createSession(room, userData);
+        const session = sessionManager.createSession(room, userData, prompt, tool);
 
         // Set up room event handlers
         setupRoomEventHandlers(room, session);
@@ -1779,6 +1763,8 @@ app.post('/create-room', async (req, res) => {
 function setupRoomEventHandlers(room, session) {
     room.on(RoomEvent.ParticipantConnected, (participant) => {
         console.log(`Session ${session.id}: Participant connected: ${participant.identity} `);
+        console.log("prompt: ", session.prompt)
+        console.log("tools: ", session.tools)
 
         // Initialize audio processing for this participant
         setupAudioProcessingForParticipant(participant, session);

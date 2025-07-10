@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Room, RoomEvent, DataPacket_Kind, RemoteParticipant, RemoteTrackPublication, RemoteAudioTrack } from 'livekit-client';
+import { Settings, Check, Phone, PhoneCall } from 'lucide-react';
 
-const SERVER_URL = 'http://localhost:5001';
-// const SERVER_URL = 'https://call-server.shipfast.studio/livekit';
+// const SERVER_URL = 'http://localhost:5001';
+const SERVER_URL = 'https://call-server.shipfast.studio/livekit';
 
 const Audio = () => {
   const [isConnected, setIsConnected] = useState(false);
@@ -16,8 +17,24 @@ const Audio = () => {
   const [isMicOn, setIsMicOn] = useState(false);
   const audioRef = useRef(null);
   const [selectedPhone, setSelectedPhone] = useState('');
-  const [currentPrompt, setCurrentPrompt] = useState('');
-  const [editingPrompt, setEditingPrompt] = useState('');
+  const [currentPrompt, setCurrentPrompt] = useState(`You are an AI assistant for "Gautam Garment" Shopify store. 
+**Process:**
+1. Understand user intent
+2. Use tools if you need store data (products, orders, customers)
+3. Respond in JSON format:
+{
+"response": "your answer here",
+"output_channel": "audio"
+}`);
+  const [editingPrompt, setEditingPrompt] = useState(`You are an AI assistant for "Gautam Garment" Shopify store. 
+**Process:**
+1. Understand user intent
+2. Use tools if you need store data (products, orders, customers)
+3. Respond in JSON format:
+{
+"response": "your answer here",
+"output_channel": "audio"
+}`);
   const [isPromptEditing, setIsPromptEditing] = useState(false);
   const [availableFunction, setAvailableFunction] = useState([
     {
@@ -65,6 +82,42 @@ const Audio = () => {
   ]);
   const [selectedFunction, setSelectedFunction] = useState([]);
   const [callInput, setCallInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const [pageIndex, setPageIndex] = useState(0);
+  const pages = 2; // update if you add more pages
+  let isScrolling = false;
+
+  useEffect(() => {
+    const handleWheel = (e) => {
+      if (isScrolling) return;
+
+      if (e.deltaY > 0 && pageIndex < pages - 1) {
+        setPageIndex((prev) => prev + 1);
+        isScrolling = true;
+      } else if (e.deltaY < 0 && pageIndex > 0) {
+        setPageIndex((prev) => prev - 1);
+        isScrolling = true;
+      }
+
+      setTimeout(() => {
+        isScrolling = false;
+      }, 800); // wait for scroll to finish
+    };
+
+    window.addEventListener("wheel", handleWheel, { passive: false });
+
+    return () => {
+      window.removeEventListener("wheel", handleWheel);
+    };
+  }, [pageIndex]);
+
+  useEffect(() => {
+    window.scrollTo({
+      top: pageIndex * window.innerHeight,
+      behavior: "smooth",
+    });
+  }, [pageIndex]);
 
   const handleCallInput = (e) => {
     setCallInput(e.target.value);
@@ -73,6 +126,7 @@ const Audio = () => {
   const handleCall = async () => {
     // const callInput = '+1234567890'; // Replace with the recipient's number
     try {
+      setIsLoading(true);
       const response = await fetch('https://temp-vb4k.onrender.com/call', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -88,8 +142,10 @@ const Audio = () => {
       const data = await response.json(); // only if server sends JSON
       console.log('Response:', data);
       setSelectedPhone('');
+      setIsLoading(false);
     } catch (error) {
       console.error('Fetch error:', error.message);
+      setIsLoading(false);
     }
   };
 
@@ -112,7 +168,7 @@ const Audio = () => {
       const roomCreation = await fetch(`${SERVER_URL}/create-room`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roomName: newRoomName, userData: selectedPhone })
+        body: JSON.stringify({ roomName: newRoomName, userData: selectedPhone, prompt: editingPrompt, tool: selectedFunction })
       });
       const prompt = await roomCreation.json();
       console.log(prompt.prompt)
@@ -254,136 +310,176 @@ const Audio = () => {
   }, [room]);
 
   return (
-    <div className="min-h-screen bg-black from-gray-900 to-gray-800 text-white p-6 flex flex-col justify-center items-center align-center">
-      {
-        !isConnected ? (
-          <div className="p-6 max-w-md mx-auto bg-black rounded-lg shadow-md">
-            <div className="mb-4">
-              <select
-                id="phone-select"
-                value={selectedPhone}
-                onChange={handlePhoneChange}
-                className="w-full px-3 py-2 bg-black border border-gray-600 text-white rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-white focus:border-white"
-              >
-                {/* <option value="">-- Please select --</option> */}
-                <option value="" className="bg-black text-white">Unknown</option>
-                <option value="+919313562780" className="bg-black text-white">Shubhanshu</option>
-                <option value="+919512467691" className="bg-black text-white">Ankit C</option>
-                <option value="+918780899485" className="bg-black text-white">Abhinav</option>
-              </select>
-            </div>
-
-            {selectedPhone && (
-              <div className="mt-4 p-3 bg-gray-900 rounded-md">
-                <p className="text-sm text-white">
-                  Selected: <span className="font-semibold">{
-                    selectedPhone === '+919313562780' ? 'Shubhanshu' :
-                      selectedPhone === '+918780899485' ? 'Abhinav' :
-                        selectedPhone === '+919512467691' ? 'Ankit C' :
-                          'Unknown'
-                  }</span>
-                </p>
+    <div className="min-h-screen bg-black from-gray-900 to-gray-800 text-white flex md:flex-row flex-col justify-center items-center align-center overflow-y-hidden container">
+      <div className='w-full md:w-1/2 h-screen border-r-0 md:border-r-2 border-b-1 md:border-b-0 border-white p-5 md:p-8 overflow-y-auto page'>
+        <div className='text-2xl font-bold text-center'>Make a Web Call</div>
+        {
+          !isConnected ? (
+            <div className="p-6 max-w-md mx-auto bg-black rounded-lg shadow-md">
+              <div className='text-xl font-bold mb-4'>Select a User</div>
+              <div className="">
+                <select
+                  id="phone-select"
+                  value={selectedPhone}
+                  onChange={handlePhoneChange}
+                  className="w-full px-3 py-2 bg-black border border-gray-600 text-white rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-white focus:border-white"
+                >
+                  {/* <option value="">-- Please select --</option> */}
+                  <option value="" className="bg-black text-white">Unknown</option>
+                  <option value="+" className="bg-black text-white">Shubhanshu</option>
+                  <option value="+" className="bg-black text-white">Ankit C</option>
+                  <option value="+" className="bg-black text-white">Abhinav</option>
+                </select>
               </div>
-            )}
-          </div>
-        ) : ""
-      }
-      <header className="mb-6 text-center">
-        {/* <h1 className="text-3xl font-extrabold">Voice Agent</h1> */}
-        {roomName && <p className="text-xs text-gray-200 mt-1">Room: {roomName}</p>}
-      </header>
-      <div className="flex flex-wrap gap-4 mb-6 justify-center">
-        {!isConnected ? (
-          <button onClick={handleConnect} className="bg-white text-black hover:bg-gray-300 cursor-pointer transition px-6 py-2 rounded-full font-semibold shadow">Connect</button>
-        ) : (
-          <button onClick={handleDisconnect} className="bg-white text-black cursor-pointer hover:bg-gray-300 transition px-6 py-2 rounded-full font-semibold shadow">Disconnect</button>
-        )}
-        {isConnected && (
-          <button onClick={handleMicToggle} className={`transition px-6 cursor-pointer py-2 rounded-full font-semibold shadow ${isMicOn ? 'bg-white text-black hover:bg-gray-300' : 'bg-black text-white border-2 hover:bg-gray-900'}`}>{isMicOn ? '🎤 Stop Mic' : '🎤 Start Mic'}</button>
-        )}
-      </div>
-      {error && <div className="text-red-300 text-sm mb-4">{error}</div>}
-      <audio ref={audioRef} autoPlay />
 
-
-
-
-
-      {/* Prompt Box */}
-      {
-        isConnected && selectedPhone ? (<div className="bg-white/10 w-full backdrop-blur-md p-6 rounded-xl border border-white/20 shadow-md mb-6">
-          <h2 className="text-2xl font-bold mb-2">Prompt</h2>
-          <textarea className="text-gray-200 whitespace-pre-wrap break-words min-h-fit h-200 max-h-400 w-full overflow-y-auto" onChange={((e) => { setEditingPrompt(e.target.value) })} value={editingPrompt} />
-          <div className=' text-3xl'>
-            Function Available to use
-            <div className='flex justify-between text-xl items-center'>
-              {
-                availableFunction.map((func, index) => {
-                  // console.log("function",index)
-                  // let fun = `${func}`
-                  console.log(selectedFunction.includes(func))
-                  return (
-                    <div key={index} className='p-2'>
-                      <input
-                        type="checkbox"
-                        value={index}
-                        name="funcs"
-                        className='m-2 w-5'
-                        onChange={handleFunctionInput}
-                        checked={selectedFunction.includes(func)}
-                      />
-                      {func.name}
-                    </div>
-                  )
-                })
-              }
+              {selectedPhone && (
+                <div className="mt-4 p-3 bg-gray-900 rounded-md">
+                  <p className="text-sm text-white">
+                    Selected: <span className="font-semibold">{
+                      selectedPhone === '+919313562780' ? 'Shubhanshu' :
+                        selectedPhone === '+918780899485' ? 'Abhinav' :
+                          selectedPhone === '+919512467691' ? 'Ankit C' :
+                            'Unknown'
+                    }</span>
+                  </p>
+                </div>
+              )}
             </div>
-          </div>
-
-          <button onClick={handlePromptSave} className='w-30 h-8 bg-blue-600 text-white rounded-2xl mt-10 p-1'>EditingPrompt</button>
-        </div>) : ""
-      }
-
-      {/* Call Box */}
-      {
-        !isConnected ? (
-          <div className='flex flex-col items-center justify-center'>
-            <p className='text-2xl font-bold mb-4'>OR</p>
-            <div className="bg-white/10 backdrop-blur-md py-3 px-6 rounded-xl border border-white/20 shadow-md">
-              <input type="text" placeholder='Enter phone number' value={callInput} onChange={handleCallInput} className='bg-white/10 text-white placeholder-gray-400 px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:opacity-50' />
-              <button onClick={handleCall} className='bg-blue-600 mx-5 text-white px-6 py-2 rounded-2xl'>Call</button>
-            </div>
-          </div>
-        ) : ""
-      }
-      {/* <div className="bg-white/10 backdrop-blur-md p-6 rounded-xl border border-white/20 shadow-md mb-6">
-        <h2 className="text-2xl font-bold mb-4">💬 Chat</h2>
-        <div className="h-40 bg-white/5 rounded-lg overflow-y-auto p-3 mb-4 text-sm text-gray-200 border border-white/10">
-          {chatMessages.map((msg, index) => (
-            <div key={index} className={`mb-2 ${msg.role === 'user' ? 'text-blue-300' : 'text-green-300'}`}>
-              <strong>{msg.role === 'user' ? 'You' : 'Assistant'}:</strong> {msg.content}
-            </div>
-          ))}
+          ) : ""
+        }
+        <header className="mb-2 text-center">
+          {/* <h1 className="text-3xl font-extrabold">Voice Agent</h1> */}
+          {roomName && <p className="text-xs text-gray-200 mt-1">Room: {roomName}</p>}
+        </header>
+        <div className="flex flex-wrap gap-4 mb-6 justify-center">
+          {!isConnected ? (
+            <button onClick={handleConnect} className="bg-white text-black hover:bg-gray-300 cursor-pointer transition px-6 py-2 rounded-full font-semibold shadow">Connect</button>
+          ) : (
+            <button onClick={handleDisconnect} className="bg-white text-black cursor-pointer hover:bg-gray-300 transition px-6 py-2 rounded-full font-semibold shadow">Disconnect</button>
+          )}
+          {isConnected && (
+            <button onClick={handleMicToggle} className={`transition px-6 cursor-pointer py-2 rounded-full font-semibold shadow ${isMicOn ? 'bg-white text-black hover:bg-gray-300' : 'bg-black text-white border-2 hover:bg-gray-900'}`}>{isMicOn ? '🎤 Stop Mic' : '🎤 Start Mic'}</button>
+          )}
         </div>
-        <form onSubmit={handleChatSubmit} className="flex gap-2">
-          <input
-            type="text"
-            placeholder="Type your message..."
-            value={chatInput}
-            onChange={e => setChatInput(e.target.value)}
-            disabled={!isConnected}
-            className="flex-1 bg-white/10 text-white placeholder-gray-400 px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:opacity-50"
-          />
-          <button
-            type="submit"
-            disabled={!isConnected || !chatInput.trim()}
-            className="bg-blue-600 hover:bg-blue-700 transition px-5 py-2 rounded-lg font-semibold shadow disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Send
-          </button>
-        </form>
-      </div> */}
+        {error && <div className="text-red-300 text-sm mb-4">{error}</div>}
+        <audio ref={audioRef} autoPlay />
+
+
+
+
+
+        {/* Prompt Box */}
+        {
+          !isConnected ? (<div className="max-w-4xl mx-auto bg-black rounded-lg shadow-xl border border-gray-700 p-6 mb-6">
+            {/* Header */}
+            <div className="flex items-center gap-3 mb-6">
+              <Settings className="w-6 h-6 text-blue-600" />
+              <h2 className="md:text-2xl text-xl font-semibold text-white">Prompt Configuration</h2>
+            </div>
+
+            {/* Prompt Editor */}
+            <div className="mb-8">
+              <label className="block text-sm font-medium text-gray-300 mb-3">
+                System Prompt
+              </label>
+              <textarea
+                value={editingPrompt}
+                onChange={(e) => setEditingPrompt(e.target.value)}
+                placeholder="Enter your system prompt here..."
+                className="w-full text-xs md:text-base h-32 p-4 bg-gray-800 border border-gray-600 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-100 placeholder-gray-500"
+              />
+            </div>
+
+            {/* Function Selection */}
+            <div className="text-xs md:text-base">
+              <label className="block text-sm font-medium text-gray-300 mb-4">
+                Available Functions
+              </label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {availableFunction.map((func, index) => (
+                  <label
+                    key={index}
+                    className="flex items-center p-3 border border-gray-600 rounded-lg hover:bg-gray-800 cursor-pointer transition-colors"
+                  >
+                    <input
+                      type="checkbox"
+                      value={index}
+                      onChange={handleFunctionInput}
+                      checked={selectedFunction.includes(func)}
+                      className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
+                    />
+                    <span className="ml-3 text-gray-300 font-medium">{func.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Action Button */}
+            {/* <div className="flex justify-end">
+              <button
+                onClick={handlePromptSave}
+                className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              >
+                <Check className="w-4 h-4" />
+                Save Configuration
+              </button>
+            </div> */}
+          </div>) : ""
+        }
+      </div>
+
+      <div className='w-full md:w-1/2 h-screen md:border-l-2 border-l-0 border-white p-5 md:p-8 overflow-hidden page'>
+        <div className='text-2xl font-bold mb-4 text-center'>Make a Phone Call</div>
+        {/* Call Box */}
+        {
+          !isConnected ? (
+            <div className="flex flex-col items-center justify-center h-full space-y-6">
+              {/* Phone Call Section */}
+              <div className="mx-auto w-full bg-black rounded-lg shadow-xl border border-gray-700 p-6">
+                <div className="flex items-center gap-3 mb-4">
+                  <Phone className="w-5 h-5 text-blue-400" />
+                  <h3 className="text-lg font-semibold text-white">Make a Call</h3>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                      Phone Number
+                    </label>
+                    <input
+                      type="tel"
+                      placeholder="Enter phone number"
+                      value={callInput}
+                      onChange={handleCallInput}
+                      className="w-full px-4 py-3 bg-gray-800 border border-gray-600 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+
+                  <button
+                    onClick={handleCall}
+                    disabled={!callInput.trim() || isLoading}
+                    className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900"
+                  >
+                    {isLoading ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        Calling...
+                      </>
+                    ) : (
+                      <>
+                        <PhoneCall className="w-4 h-4" />
+                        Call Now
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : ""
+        }
+      </div>
     </div>
+
   );
 };
 
