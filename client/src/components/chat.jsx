@@ -332,38 +332,62 @@ const Chat = () => {
 
       {/* Prompt Box */}
       {
-        isConnected && selectedPhone ? (<div className="bg-white/10 w-full backdrop-blur-md p-6 rounded-xl border border-white/20 shadow-md mb-6">
-          <h2 className="text-2xl font-bold mb-2">Prompt</h2>
-          <textarea className="text-gray-200 whitespace-pre-wrap break-words min-h-fit h-200 max-h-400 w-full overflow-y-auto" onChange={((e) => { setEditingPrompt(e.target.value) })} value={editingPrompt} />
-          <div className=' text-3xl'>
-            Function Available to use
-            <div className='flex justify-between text-xl items-center'>
-              {
-                availableFunction.map((func, index) => {
-                  // console.log("function",index)
-                  // let fun = `${func}`
-                  console.log(selectedFunction.includes(func))
-                  return (
-                    <div key={index} className='p-2'>
-                      <input
-                        type="checkbox"
-                        value={index}
-                        name="funcs"
-                        className='m-2 w-5'
-                        onChange={handleFunctionInput}
-                        checked={selectedFunction.includes(func)}
-                      />
-                      {func.name}
-                    </div>
-                  )
-                })
-              }
+          !isConnected ? (<div className="max-w-4xl mx-auto bg-black rounded-lg shadow-xl border border-gray-700 p-6 mb-6">
+            {/* Header */}
+            <div className="flex items-center gap-3 mb-6">
+              <Settings className="w-6 h-6 text-blue-600" />
+              <h2 className="md:text-2xl text-xl font-semibold text-white">Prompt Configuration</h2>
             </div>
-          </div>
 
-          <button onClick={handlePromptSave} className='w-30 h-8 bg-blue-600 text-white rounded-2xl mt-10 p-1'>EditingPrompt</button>
-        </div>) : ""
-      }
+            {/* Prompt Editor */}
+            <div className="mb-8">
+              <label className="block text-sm font-medium text-gray-300 mb-3">
+                System Prompt
+              </label>
+              <textarea
+                value={editingPrompt}
+                onChange={(e) => setEditingPrompt(e.target.value)}
+                placeholder="Enter your system prompt here..."
+                className="w-full text-xs md:text-base h-32 p-4 bg-gray-800 border border-gray-600 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-100 placeholder-gray-500"
+              />
+            </div>
+
+            {/* Function Selection */}
+            <div className="text-xs md:text-base">
+              <label className="block text-sm font-medium text-gray-300 mb-4">
+                Available Functions
+              </label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {availableFunction.map((func, index) => (
+                  <label
+                    key={index}
+                    className="flex items-center p-3 border border-gray-600 rounded-lg hover:bg-gray-800 cursor-pointer transition-colors"
+                  >
+                    <input
+                      type="checkbox"
+                      value={index}
+                      onChange={handleFunctionInput}
+                      checked={selectedFunction.includes(func)}
+                      className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
+                    />
+                    <span className="ml-3 text-gray-300 font-medium">{func.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Action Button */}
+            {/* <div className="flex justify-end">
+              <button
+                onClick={handlePromptSave}
+                className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              >
+                <Check className="w-4 h-4" />
+                Save Configuration
+              </button>
+            </div> */}
+          </div>) : ""
+        }
     </div>
   );
 };
