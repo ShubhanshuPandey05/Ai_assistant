@@ -784,7 +784,7 @@ class SessionManager {
                 availableChannel: [],
                 chatHistory: [{
                     role: 'assistant',
-                    content: `Hello ${user.Name} You are speaking to an AI assistant for Gautam Garment.`
+                    content: `Hello ${user.Name} You are speaking to an AI assistant.`
                 }],
                 //prompt: `You are a helpful AI assistant for the Shopify store "Gautam Garment". The user Name is ${user.Name}  You have access to several tools (functions) that let you fetch and provide real-time information about products, orders, and customers from the store.
 
@@ -870,7 +870,7 @@ class SessionManager {
             availableChannel: [],
             chatHistory: [{
                 role: 'assistant',
-                content: "Hello! You are speaking to an AI assistant for Gautam Garment."
+                content: "Hello! You are speaking to an AI assistant."
             }],
             //             prompt: `You are a helpful AI assistant for the Shopify store "Gautam Garment". You have access to several tools (functions) that let you fetch and provide real-time information about products, orders, and customers from the store.
             prompt: prompt,
@@ -2105,22 +2105,22 @@ async function handleTurnCompletion(session) {
 
         if (outputType === 'audio') {
             handleInterruption(session);
-            // let TTSTimeStart = Date.now()
-            // const audioBuffer = await aiProcessing.synthesizeSpeech(processedText, session.id);
-            // let TTSTime = Date.now() - TTSTimeStart
-            // console.log("TTSTime", TTSTime)
-            // if (!audioBuffer) throw new Error("Failed to synthesize speech.");
-            // // let convertTimeStart = Date.now()
-            // // const mulawBuffer = await audioUtils.convertMp3ToPcmInt16(audioBuffer, session.id);
-            // // let convertTime = Date.now() - convertTimeStart
-            // // console.log("convertTime", convertTime)
-            // if (audioBuffer) {
-            //     session.interruption = false;
-            //     audioUtils.streamMulawAudioToLiveKit(session.room, audioBuffer, session);
-            // } else {
-            //     throw new Error("Failed to convert audio to mulaw.");
-            // }
-            await aiProcessing.processTextToSpeech(processedText, session);
+            let TTSTimeStart = Date.now()
+            const audioBuffer = await aiProcessing.synthesizeSpeech3(processedText, session.id);
+            let TTSTime = Date.now() - TTSTimeStart
+            console.log("TTSTime", TTSTime)
+            if (!audioBuffer) throw new Error("Failed to synthesize speech.");
+            let convertTimeStart = Date.now()
+            const mulawBuffer = await audioUtils.convertMp3ToPcmInt16(audioBuffer, session.id);
+            let convertTime = Date.now() - convertTimeStart
+            console.log("convertTime", convertTime)
+            if (mulawBuffer) {
+                session.interruption = false;
+                audioUtils.streamMulawAudioToLiveKit(session.room, mulawBuffer, session);
+            } else {
+                throw new Error("Failed to convert audio to mulaw.");
+            }
+            // await aiProcessing.processTextToSpeech(processedText, session);
         } else {
             session.room.localParticipant.publishData(
                 Buffer.from(JSON.stringify({
@@ -2174,14 +2174,14 @@ async function sendInitialAnnouncement(session) {
     let announcementText = session.chatHistory[0].content;
 
     // await audioUtils.deepgramTtsToLiveKit(session.room, announcementText, session);
-    // const mp3Buffer = await aiProcessing.synthesizeSpeech(announcementText, session.id);
-    // if (mp3Buffer) {
-    //     // const mulawBuffer = await audioUtils.convertMp3ToPcmInt16(mp3Buffer, session.id);
-    //     // if (mulawBuffer) {
-    //     audioUtils.streamMulawAudioToLiveKit(session.room, mp3Buffer, session);
-    //     // }
-    // }
-    await aiProcessing.processTextToSpeech(announcementText, session);
+    const mp3Buffer = await aiProcessing.synthesizeSpeech3(announcementText, session.id);
+    if (mp3Buffer) {
+        const mulawBuffer = await audioUtils.convertMp3ToPcmInt16(mp3Buffer, session.id);
+        if (mulawBuffer) {
+            audioUtils.streamMulawAudioToLiveKit(session.room, mulawBuffer, session);
+        }
+    }
+    // await aiProcessing.processTextToSpeech(announcementText, session);
 }
 
 // Handle chat messages
