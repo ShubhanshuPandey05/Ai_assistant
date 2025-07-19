@@ -90,6 +90,18 @@ const toolDefinitions = [
             },
             required: ["orderId"]
         }
+    },
+    {
+        type: "function",
+        name: "changeNode",
+        description: "Change the Agent Node",
+        parameters: {
+            type: "object",
+            properties: {
+                agentName: { type: "string", description: "The Agent Name." }
+            },
+            required: ["agentName"]
+        }
     }
 ];
 
@@ -463,6 +475,12 @@ const functions = {
                 quantity: itemEdge.node.quantity
             }))
         };
+    },
+    async changeNode(session, agentName) {
+        let agentPrompt = session.nodeList.find(node => node.name === agentName).prompt;
+        session.currentPrompt = `${session.globalPrompt} ${agentPrompt}`;
+        session.currentTools = [...session.globalTools, ...session.nodeList.find(node => node.name === agentName).tools];
+        return `You are now in the ${agentName} node`;
     }
 }
 
@@ -741,7 +759,7 @@ class SessionManager {
         this.sessions = new Map(); // Stores active sessions by roomName
     }
 
-    createSession(roomName, userData, prompt, tool) {
+    createSession(roomName, userData, prompt, tool, nodeList) {
         let user = userStorage.findUser(userData)
         // console.log(user)
         if (user) {
@@ -786,6 +804,7 @@ class SessionManager {
                     role: 'assistant',
                     content: `Hello ${user.Name} You are speaking to an AI assistant for Gautam Garment.`
                 }],
+                currentPrompt: prompt,
                 //prompt: `You are a helpful AI assistant for the Shopify store "Gautam Garment". The user Name is ${user.Name}  You have access to several tools (functions) that let you fetch and provide real-time information about products, orders, and customers from the store.
 
                 // Your Tasks:
@@ -821,9 +840,9 @@ class SessionManager {
                 // If the user asks a general question or your response does not require real-time store data, answer directly.
                 // ***Always use the user's input_channel for your response if it matches the available ***
                 // The store name is "Gautam Garment"—refer to it by name in your responses when appropriate.`,
-                prompt: prompt,
+                globalPrompt: prompt,
+                nodeList: nodeList,
                 metrics: { llm: 0, stt: 0, tts: 0 },
-
                 ffmpegProcess: null,
                 vadProcess: null,
                 turndetectionprocess: null,
@@ -831,7 +850,8 @@ class SessionManager {
                 isVadSpeechActive: false,
                 currentUserUtterance: '',
                 isTalking: false,
-                tools: tool,
+                currentTools: [],
+                globalTools: tool,
                 denoiser: null,
                 remainder: null
             };
@@ -872,8 +892,22 @@ class SessionManager {
                 role: 'assistant',
                 content: "Hello! You are speaking to an AI assistant for Gautam Garment."
             }],
-            //             prompt: `You are a helpful AI assistant for the Shopify store "Gautam Garment". You have access to several tools (functions) that let you fetch and provide real-time information about products, orders, and customers from the store.
-            prompt: prompt,
+            currentPrompt: `You are an multi ai agent system you have access to multiple nodes you can change the node by calling the changeNode function with the agent name as the parameter as per use case
+            this the users global prompt: ${prompt}
+            this the users node list: ${nodeList}
+            And this is the users current prompt: ${nodeList[0].prompt} `,
+            //prompt: `You are a helpful AI assistant for the Shopify store "Gautam Garment". You have access to several tools (functions) that let you fetch and provide real-time information about products, orders, and customers from the store.
+
+            // Your Tasks:
+
+            // Understand the user's message and intent.
+            // If you need specific store data (like product lists, order details, or customer info), use the available tools by calling the appropriate function with the required parameters.
+            // After receiving tool results, use them to generate a helpful, concise, and accurate response for the user.
+            globalPrompt: `You are an multi ai agent system you have access to multiple nodes you can change the node by calling the changeNode function with the agent name as the parameter as per use case
+            this the users global prompt: ${prompt}
+            this the users node list: ${nodeList}
+            And this is the users current prompt: `,
+            nodeList: nodeList,
             metrics: { llm: 0, stt: 0, tts: 0 },
 
             ffmpegProcess: null,
@@ -1759,6 +1793,40 @@ app.post('/create-room', async (req, res) => {
     }
 });
 
+app.post('/create-multi-agent-room', async (req, res) => {
+    try {
+        const { roomName, userData, globalPrompt, tools, nodeList } = req.body;
+
+        if (!roomName || !userData || !globalPrompt || !tools || !nodeList) {
+            return res.status(400).json({ error: 'roomName, userData, globalPrompt, tools, and nodeList are required' });
+        }
+
+        const room = new Room();
+        const agentToken = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
+            identity: 'AI-Agent',
+        });
+        agentToken.addGrant({ roomJoin: true, room: roomName });
+        let token = await agentToken.toJwt()
+        await room.connect(LIVEKIT_URL, token, {
+            autoSubscribe: true
+        });
+
+        const session = sessionManager.createSession(room, userData, globalPrompt, tools, nodeList);
+
+        setupRoomEventHandlers(room, session);
+
+        res.json({
+            success: true,
+            sessionId: session.id,
+            message: 'Multi-agent room created and agent joined successfully',
+            prompt: session.prompt
+        });
+    } catch (error) {
+        console.error('Error creating multi-agent room:', error);
+        res.status(500).json({ error: 'Failed to create multi-agent room' });
+    }
+})
+
 // Setup room event handlers
 function setupRoomEventHandlers(room, session) {
     room.on(RoomEvent.ParticipantConnected, (participant) => {
@@ -2105,22 +2173,30 @@ async function handleTurnCompletion(session) {
 
         if (outputType === 'audio') {
             handleInterruption(session);
-            // let TTSTimeStart = Date.now()
-            // const audioBuffer = await aiProcessing.synthesizeSpeech(processedText, session.id);
-            // let TTSTime = Date.now() - TTSTimeStart
-            // console.log("TTSTime", TTSTime)
-            // if (!audioBuffer) throw new Error("Failed to synthesize speech.");
-            // // let convertTimeStart = Date.now()
-            // // const mulawBuffer = await audioUtils.convertMp3ToPcmInt16(audioBuffer, session.id);
-            // // let convertTime = Date.now() - convertTimeStart
-            // // console.log("convertTime", convertTime)
-            // if (audioBuffer) {
-            //     session.interruption = false;
-            //     audioUtils.streamMulawAudioToLiveKit(session.room, audioBuffer, session);
-            // } else {
-            //     throw new Error("Failed to convert audio to mulaw.");
-            // }
-            await aiProcessing.processTextToSpeech(processedText, session);
+            let TTSTimeStart = Date.now()
+            const audioBuffer = await aiProcessing.synthesizeSpeech(processedText, session.id);
+            let TTSTime = Date.now() - TTSTimeStart
+            console.log("TTSTime", TTSTime)
+            if (!audioBuffer) throw new Error("Failed to synthesize speech.");
+            let convertTimeStart = Date.now()
+            const mulawBuffer = await audioUtils.convertMp3ToPcmInt16(audioBuffer, session.id);
+            let convertTime = Date.now() - convertTimeStart
+            console.log("convertTime", convertTime)
+            if (mulawBuffer) {
+                session.interruption = false;
+                audioUtils.streamMulawAudioToLiveKit(session.room, mulawBuffer, session);
+            } else {
+                throw new Error("Failed to convert audio to mulaw.");
+            }
+
+
+
+
+            // await aiProcessing.processTextToSpeech(processedText, session);
+
+
+
+
         } else {
             session.room.localParticipant.publishData(
                 Buffer.from(JSON.stringify({
