@@ -102,6 +102,17 @@ const toolDefinitions = [
             },
             required: ["agentName"]
         }
+    },
+    {
+        type: "function",
+        name: "hangUp",
+        description: "Hang up the call",
+        parameters: {
+            type: "object",
+            properties: {
+                agentName: { type: "string", description: "The Agent Name." }
+            },
+        }
     }
 ];
 
@@ -477,10 +488,19 @@ const functions = {
         };
     },
     async changeNode(session, agentName) {
-        let agentPrompt = session.nodeList.find(node => node.name === agentName).prompt;
+        
+        let nameToFind = JSON.parse(agentName);
+        let agentPrompt = session.nodeList.find(node => node.name === nameToFind.agentName).prompt;
         session.currentPrompt = `${session.globalPrompt} ${agentPrompt}`;
-        session.currentTools = [...session.globalTools, ...session.nodeList.find(node => node.name === agentName).tools];
+        session.currentTools = [...session.globalTools, ...session.nodeList.find(node => node.name === nameToFind.agentName).tools];
+        console.log("session.currentPrompt", session.currentPrompt)
+        console.log("session.currentTools", session.currentTools)
+        console.log(`You are now in the ${agentName} node`);
         return `You are now in the ${agentName} node`;
+    },
+    async deleteRoom(roomName) {
+        await roomService.deleteRoom(roomName);
+        return `Room ${roomName} deleted`;
     }
 }
 
@@ -804,43 +824,16 @@ class SessionManager {
                     role: 'assistant',
                     content: `Hello ${user.Name} You are speaking to an AI assistant for Gautam Garment.`
                 }],
-                currentPrompt: prompt,
-                //prompt: `You are a helpful AI assistant for the Shopify store "Gautam Garment". The user Name is ${user.Name}  You have access to several tools (functions) that let you fetch and provide real-time information about products, orders, and customers from the store.
-
-                // Your Tasks:
-
-                // Understand the user's message and intent.
-                // If you need specific store data (like product lists, order details, or customer info), use the available tools by calling the appropriate function with the required parameters.
-                // After receiving tool results, use them to generate a helpful, concise, and accurate response for the user.
-                // Always return your answer in JSON format with two fields:
-                // "response": your textual reply for the user
-                // "output_channel": the medium for your response
-
-                // Example Output:
-                // {
-                // "response": "Here are the top 5 products from Gautam Garment.",
-                // "output_channel": "audio"
-                // }
-
-                // User Input Format:
-                // The user's message will be a JSON object with "message" and "input_channel", for example:
-                // {
-                // "message": "Show me my recent orders",
-                // "input_channel": "audio"
-                // }
-
-                // Available Tools (functions):
-                // getAllProducts: Get a list of all products in the store.
-                // getUserDetailsByPhoneNo: Get customer details by phone number.
-                // getAllOrders: Get a list of all orders.
-                // getOrderById: Get details for a specific order by its ID.
-
-                // Instructions:
-                // If a user's request requires store data, call the relevant tool first, then use its result in your reply.
-                // If the user asks a general question or your response does not require real-time store data, answer directly.
-                // ***Always use the user's input_channel for your response if it matches the available ***
-                // The store name is "Gautam Garment"—refer to it by name in your responses when appropriate.`,
-                globalPrompt: prompt,
+                currentPrompt: `You are an multi ai agent system you have access to multiple nodes you can change the node by calling the changeNode function with the agent name as the parameter as per use case
+                this the users global prompt: ${prompt}
+                this the users node list: ${JSON.stringify(nodeList)}
+                And this is the users current prompt: ${nodeList[0].prompt}
+                You can hangup the call if user ask to hangup the call or user doesn't have to talk any further.`,
+                globalPrompt: `You are an multi ai agent system you have access to multiple nodes you can change the node by calling the changeNode function with the agent name as the parameter as per use case
+                this the users global prompt: ${prompt}
+                this the users node list:${JSON.stringify(nodeList)}
+                You can hangup the call if user ask to hangup the call or user doesn't have to talk any further.
+                And this is the users current prompt: `,
                 nodeList: nodeList,
                 metrics: { llm: 0, stt: 0, tts: 0 },
                 ffmpegProcess: null,
@@ -850,7 +843,7 @@ class SessionManager {
                 isVadSpeechActive: false,
                 currentUserUtterance: '',
                 isTalking: false,
-                currentTools: [],
+                currentTools: tool,
                 globalTools: tool,
                 denoiser: null,
                 remainder: null
@@ -894,8 +887,11 @@ class SessionManager {
             }],
             currentPrompt: `You are an multi ai agent system you have access to multiple nodes you can change the node by calling the changeNode function with the agent name as the parameter as per use case
             this the users global prompt: ${prompt}
-            this the users node list: ${nodeList}
-            And this is the users current prompt: ${nodeList[0].prompt} `,
+            this the users node list: ${JSON.stringify(nodeList)}
+            And this is the users current prompt: ${nodeList[0].prompt}
+            You can hangup the call if user ask to hangup the call or user doesn't have to talk any further.
+            `,
+
             //prompt: `You are a helpful AI assistant for the Shopify store "Gautam Garment". You have access to several tools (functions) that let you fetch and provide real-time information about products, orders, and customers from the store.
 
             // Your Tasks:
@@ -905,7 +901,8 @@ class SessionManager {
             // After receiving tool results, use them to generate a helpful, concise, and accurate response for the user.
             globalPrompt: `You are an multi ai agent system you have access to multiple nodes you can change the node by calling the changeNode function with the agent name as the parameter as per use case
             this the users global prompt: ${prompt}
-            this the users node list: ${nodeList}
+            this the users node list: ${JSON.stringify(nodeList)}
+            You can hangup the call if user ask to hangup the call or user doesn't have to talk any further.
             And this is the users current prompt: `,
             nodeList: nodeList,
             metrics: { llm: 0, stt: 0, tts: 0 },
@@ -917,7 +914,8 @@ class SessionManager {
             isVadSpeechActive: false,
             currentUserUtterance: '',
             isTalking: false,
-            tools: tool,
+            currentTools: [...tool, ...nodeList[0].tools],
+            globalTools: tool,
             denoiser: null,
             remainder: null
         };
@@ -1351,11 +1349,13 @@ const aiProcessing = {
     async processInput(input, session) {
         // console.log("here are the sessions details :", session.prompt, session.tools)
 
+        console.log("session.currentPrompt", session.currentPrompt)
+
         const createResponseParams = {
             model: "gpt-4o-mini",
             input: input.message,
-            instructions: session.prompt,
-            tools: session.tools
+            instructions: session.currentPrompt,
+            tools: session.currentTools
             // tools: toolDefinitions
         };
         if (session.lastResponseId) {
@@ -1379,6 +1379,10 @@ const aiProcessing = {
                 toolResult = await functions.getAllOrders();
             } else if (response.output[0].name === "getOrderById") {
                 toolResult = await functions.getOrderById(args.orderId);
+            } else if (response.output[0].name === "hangUp") {
+                toolResult = await functions.deleteRoom(session.room.name);
+            } else if (response.output[0].name === "changeNode") {
+                toolResult = await functions.changeNode(session, response.output[0].arguments);
             } else {
                 toolResult = { error: "Unknown tool requested." };
             }
@@ -1700,7 +1704,7 @@ const changePrompt = (session, prompt, tools) => {
         Available channels:
         ${session.availableChannel.join(",")}
         `
-    session.prompt = changePrompt;
+    session.currentPrompt = changePrompt;
     session.tools = tools
 }
 
@@ -1796,8 +1800,9 @@ app.post('/create-room', async (req, res) => {
 app.post('/create-multi-agent-room', async (req, res) => {
     try {
         const { roomName, userData, globalPrompt, tools, nodeList } = req.body;
+        console.log("body", req.body)
 
-        if (!roomName || !userData || !globalPrompt || !tools || !nodeList) {
+        if (!roomName || !globalPrompt || !tools || !nodeList) {
             return res.status(400).json({ error: 'roomName, userData, globalPrompt, tools, and nodeList are required' });
         }
 
@@ -1810,6 +1815,7 @@ app.post('/create-multi-agent-room', async (req, res) => {
         await room.connect(LIVEKIT_URL, token, {
             autoSubscribe: true
         });
+        // console.log("nodeList", nodeList)
 
         const session = sessionManager.createSession(room, userData, globalPrompt, tools, nodeList);
 
@@ -1831,8 +1837,8 @@ app.post('/create-multi-agent-room', async (req, res) => {
 function setupRoomEventHandlers(room, session) {
     room.on(RoomEvent.ParticipantConnected, (participant) => {
         console.log(`Session ${session.id}: Participant connected: ${participant.identity} `);
-        console.log("prompt: ", session.prompt)
-        console.log("tools: ", session.tools)
+        console.log("prompt: ", session.globalPrompt)
+        console.log("tools: ", session.currentTools)
 
         // Initialize audio processing for this participant
         setupAudioProcessingForParticipant(participant, session);

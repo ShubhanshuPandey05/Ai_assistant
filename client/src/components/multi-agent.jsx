@@ -255,7 +255,7 @@ const Audio = () => {
     }, [room]);
 
     return (
-        <div className="min-h-screen min-w-screen bg-black from-gray-900 to-gray-800 text-white flex md:flex-row flex-col justify-center items-center align-center overflow-y-hidden container">
+        <div className="min-w-screen min-h-screen bg-black from-gray-900 to-gray-800 text-white flex md:flex-row flex-col justify-center items-center align-center overflow-y-hidden">
             <div className='w-full md:w-[80%] h-screen border-r-0 md:border-r border-gray-700 border-b-1 md:border-b-0 p-5 md:p-8 overflow-y-auto page'>
                 {/* Prompt Box */}
                 {
