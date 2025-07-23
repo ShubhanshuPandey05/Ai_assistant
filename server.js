@@ -883,7 +883,7 @@ class SessionManager {
             availableChannel: [],
             chatHistory: [{
                 role: 'assistant',
-                content: "Hello! You are speaking to an AI assistant for Gautam Garment."
+                content: "Hello! You are speaking to an AI assistant."
             }],
             currentPrompt: `You are an multi ai agent system you have access to multiple nodes you can change the node by calling the changeNode function with the agent name as the parameter as per use case
             this the users global prompt: ${prompt}
@@ -891,14 +891,6 @@ class SessionManager {
             And this is the users current prompt: ${nodeList[0].prompt}
             You can hangup the call if user ask to hangup the call or user doesn't have to talk any further.
             `,
-
-            //prompt: `You are a helpful AI assistant for the Shopify store "Gautam Garment". You have access to several tools (functions) that let you fetch and provide real-time information about products, orders, and customers from the store.
-
-            // Your Tasks:
-
-            // Understand the user's message and intent.
-            // If you need specific store data (like product lists, order details, or customer info), use the available tools by calling the appropriate function with the required parameters.
-            // After receiving tool results, use them to generate a helpful, concise, and accurate response for the user.
             globalPrompt: `You are an multi ai agent system you have access to multiple nodes you can change the node by calling the changeNode function with the agent name as the parameter as per use case
             this the users global prompt: ${prompt}
             this the users node list: ${JSON.stringify(nodeList)}
