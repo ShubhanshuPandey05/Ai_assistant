@@ -176,21 +176,14 @@ const Audio = () => {
       const roomCreation = await fetch(`${SERVER_URL}/create-room`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roomName: newRoomName, userData: selectedPhone, prompt: editingPrompt, tool: selectedFunction })
+        body: JSON.stringify({ roomName: newRoomName, userData: selectedPhone, prompt: editingPrompt, tool: selectedFunction, participantName: 'user-' + Math.random().toString(36).substring(2, 8) })
       });
       const prompt = await roomCreation.json();
       console.log(prompt.prompt)
       setCurrentPrompt(prompt.prompt);
       setEditingPrompt(prompt.prompt)
 
-      // 3. Get token for this user
-      const resp = await fetch(`${SERVER_URL}/get-token`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roomName: newRoomName, participantName: 'user-' + Math.random().toString(36).substring(2, 8) })
-      });
-      const data = await resp.json();
-      setToken(data.token);
+      setToken(prompt.token);
 
       const livekitRoom = new Room();
 

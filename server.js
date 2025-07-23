@@ -1691,78 +1691,61 @@ setInterval(() => {
     });
 }, 10000);
 
-// Generate access token for client
-app.post('/get-token', async (req, res) => {
+app.post('/create-room', async (req, res) => {
     try {
-        const { roomName, participantName } = req.body;
+        const { roomName, participantName, userData, prompt, tool } = req.body;
 
         if (!roomName || !participantName) {
             return res.status(400).json({ error: 'roomName and participantName are required' });
         }
 
-        const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
-            identity: participantName
-        });
-        at.addGrant({ roomJoin: true, room: roomName });
-
-        // console.log(at)
-        let token = await at.toJwt()
-
-        res.json({ token: token });
-    } catch (error) {
-        console.error('Error generating token:', error);
-        res.status(500).json({ error: 'Failed to generate token' });
-    }
-});
-
-// Create room and join as agent
-app.post('/create-room', async (req, res) => {
-    try {
-        const { roomName, userData, prompt, tool } = req.body;
-
-        if (!roomName) {
-            return res.status(400).json({ error: 'roomName is required' });
-        }
-
-        // Create room
+        // 1. Create room
         await roomService.createRoom({
             name: roomName,
-            emptyTimeout: 20 * 60, // 10 minutes
+            emptyTimeout: 20 * 60, // 20 minutes
             maxParticipants: 2,
         });
 
-        // Join room as agent
+        // 2. Join room as agent
         const room = new Room();
         const agentToken = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
             identity: 'AI-Agent',
         });
         agentToken.addGrant({ roomJoin: true, room: roomName });
-        // console.log(agentToken)
-        // console.log("livekit Url", LIVEKIT_URL)
-        // console.log("livekit api", LIVEKIT_API_KEY)
-        // console.log("livekit Sec", LIVEKIT_API_SECRET)
-        let token = await agentToken.toJwt()
-        await room.connect(LIVEKIT_URL, token, {
+        const agentJwt = await agentToken.toJwt();
+
+        await room.connect(LIVEKIT_URL, agentJwt, {
             autoSubscribe: true
         });
 
-        // Create session for this room
+        // 3. Create session for this room
         const session = sessionManager.createSession(room, userData, prompt, tool);
 
-        // Set up room event handlers
+        // 4. Set up room event handlers
         setupRoomEventHandlers(room, session);
 
+        // 5. Generate token for the user (participant)
+        const userToken = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
+            identity: participantName
+        });
+        userToken.addGrant({ roomJoin: true, room: roomName });
+        const userJwt = await userToken.toJwt();
+
+        // 6. Respond with token and session data
         res.json({
             success: true,
             sessionId: session.id,
-            message: 'Room created and agent joined successfully',
+            message: 'Room created, agent joined, and token generated',
+            token: userJwt,
             prompt: session.prompt
         });
+
     } catch (error) {
-        console.error('Error creating room:', error);
-        res.status(500).json({ error: 'Failed to create room' });
+        console.error('Error creating room and generating token:', error);
+        res.status(500).json({ error: 'Failed to create room and generate token' });
     }
 });
+
 
 // Setup room event handlers
 function setupRoomEventHandlers(room, session) {
