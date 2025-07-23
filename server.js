@@ -1673,7 +1673,7 @@ const changePrompt = (session, prompt, tools) => {
 // Initialize Express server
 const app = express();
 app.use(cors({
-    origin: 'https://call.shipfast.studio',
+    origin: ['https://call.shipfast.studio', 'http://localhost:5173'],
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     maxAge: 86400

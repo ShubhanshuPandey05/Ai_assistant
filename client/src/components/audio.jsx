@@ -267,26 +267,20 @@ const Audio = () => {
 
     try {
       const localParticipant = room.localParticipant;
+      const currentState = localParticipant.isMicrophoneEnabled;
 
-      // Check if already published
-      let audioTrackPublication = Array.from(localParticipant.audioTracks.values())[0];
+      // Toggle the microphone
+      await localParticipant.setMicrophoneEnabled(!currentState);
 
-      if (!audioTrackPublication) {
-        // First time — get mic and publish
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const audioTrack = stream.getAudioTracks()[0];
-        await localParticipant.publishTrack(audioTrack);
-        setIsMicOn(true);
-      } else {
-        const audioTrack = audioTrackPublication.track;
-        if (!audioTrack) return;
+      // Update local state to match LiveKit's state
+      setIsMicOn(!currentState);
 
-        // Toggle the enabled state of the track
-        audioTrack.enabled = !audioTrack.enabled;
-        setIsMicOn(audioTrack.enabled); // Update UI state
-      }
     } catch (error) {
       console.error('Error toggling microphone:', error);
+
+      // Sync state with actual LiveKit state on error
+      const actualState = room.localParticipant.isMicrophoneEnabled;
+      setIsMicOn(actualState);
     }
   };
 
