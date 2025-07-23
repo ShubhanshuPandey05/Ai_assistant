@@ -158,51 +158,56 @@ const Audio = () => {
   // 1. Create room and get token
   const handleConnect = async () => {
     try {
-      setError(null);
+      if (!isLoading) {
+        setIsLoading(true);
+        setError(null);
 
-      // 1. Create a unique room name (or let user pick)
-      const newRoomName = 'room-' + Math.random().toString(36).substring(2, 10);
-      setRoomName(newRoomName);
+        // 1. Create a unique room name (or let user pick)
+        const newRoomName = 'room-' + Math.random().toString(36).substring(2, 10);
+        setRoomName(newRoomName);
 
 
-      console.log({
-        roomName: newRoomName,
-        userData: selectedPhone,
-        prompt: editingPrompt,
-        tool: selectedFunction
-      })
+        console.log({
+          roomName: newRoomName,
+          userData: selectedPhone,
+          prompt: editingPrompt,
+          tool: selectedFunction
+        })
 
-      // 2. Ask server to create room and join agent
-      const roomCreation = await fetch(`${SERVER_URL}/create-room`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roomName: newRoomName, userData: selectedPhone, prompt: editingPrompt, tool: selectedFunction, participantName: 'user-' + Math.random().toString(36).substring(2, 8) })
-      });
-      const prompt = await roomCreation.json();
-      console.log(prompt.prompt)
-      setCurrentPrompt(prompt.prompt);
-      setEditingPrompt(prompt.prompt)
+        // 2. Ask server to create room and join agent
+        const roomCreation = await fetch(`${SERVER_URL}/create-room`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ roomName: newRoomName, userData: selectedPhone, prompt: editingPrompt, tool: selectedFunction, participantName: 'user-' + Math.random().toString(36).substring(2, 8) })
+        });
+        const prompt = await roomCreation.json();
+        console.log(prompt.prompt)
+        setCurrentPrompt(prompt.prompt);
+        setEditingPrompt(prompt.prompt)
 
-      setToken(prompt.token);
+        setToken(prompt.token);
 
-      const livekitRoom = new Room();
+        const livekitRoom = new Room();
 
-      // 4. Connect to LiveKit room
-      await livekitRoom.connect('wss://aiagent-i9rqezpr.livekit.cloud', prompt.token, {
-        autoSubscribe: true
-      });
-      setRoom(livekitRoom);
-      setIsConnected(true);
-      // 5. Setup event listeners
-      livekitRoom.on(RoomEvent.DataReceived, handleDataReceived);
-      livekitRoom.on(RoomEvent.TrackSubscribed, handleTrackSubscribed);
-      livekitRoom.on(RoomEvent.Disconnected, () => {
-        setIsConnected(false);
-        setRoom(null);
-      });
+        // 4. Connect to LiveKit room
+        await livekitRoom.connect('wss://aiagent-i9rqezpr.livekit.cloud', prompt.token, {
+          autoSubscribe: true
+        });
+        setRoom(livekitRoom);
+        setIsConnected(true);
+        // 5. Setup event listeners
+        livekitRoom.on(RoomEvent.DataReceived, handleDataReceived);
+        livekitRoom.on(RoomEvent.TrackSubscribed, handleTrackSubscribed);
+        livekitRoom.on(RoomEvent.Disconnected, () => {
+          setIsConnected(false);
+          setRoom(null);
+        });
+      }
     } catch (err) {
       console.log(err)
       setError('Failed to connect: ' + err.message);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -261,28 +266,30 @@ const Audio = () => {
     if (!room) return;
 
     try {
-      if (!isMicOn) {
+      const localParticipant = room.localParticipant;
+
+      // Check if already published
+      let audioTrackPublication = Array.from(localParticipant.audioTracks.values())[0];
+
+      if (!audioTrackPublication) {
+        // First time — get mic and publish
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const audioTrack = stream.getAudioTracks()[0];
-        await room.localParticipant.publishTrack(audioTrack);
-        setTimeout(() => {
-          // handleCall()
-          setIsMicOn(true);
-        }, 3000)
+        await localParticipant.publishTrack(audioTrack);
+        setIsMicOn(true);
       } else {
-        // Get all audio tracks and unpublish them
-        room.localParticipant.audioTracks.forEach(publication => {
-          // publication.unPublishTrack();
-          // Stop the actual media track to release the microphone
-          publication.track?.stop();
-        });
-        setIsMicOn(false);
+        const audioTrack = audioTrackPublication.track;
+        if (!audioTrack) return;
+
+        // Toggle the enabled state of the track
+        audioTrack.enabled = !audioTrack.enabled;
+        setIsMicOn(audioTrack.enabled); // Update UI state
       }
     } catch (error) {
       console.error('Error toggling microphone:', error);
-      // Handle error appropriately (show user notification, etc.)
     }
   };
+
 
   const handlePromptSave = async () => {
     const res = await fetch(`${SERVER_URL}/change-prompt`, {
@@ -354,7 +361,7 @@ const Audio = () => {
         </header>
         <div className="flex flex-wrap gap-4 mb-6 justify-center">
           {!isConnected ? (
-            <button onClick={handleConnect} className="bg-white text-black hover:bg-gray-300 cursor-pointer transition px-6 py-2 rounded-full font-semibold shadow">Connect</button>
+            <button onClick={handleConnect} disabled={isLoading} className="bg-white text-black hover:bg-gray-300 cursor-pointer transition px-6 py-2 rounded-full font-semibold shadow">{isLoading ? 'Connecting...' : 'Connect'}</button>
           ) : (
             <button onClick={handleDisconnect} className="bg-white text-black cursor-pointer hover:bg-gray-300 transition px-6 py-2 rounded-full font-semibold shadow">Disconnect</button>
           )}
