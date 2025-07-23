@@ -188,7 +188,7 @@ const Audio = () => {
       const livekitRoom = new Room();
 
       // 4. Connect to LiveKit room
-      await livekitRoom.connect('wss://aiagent-i9rqezpr.livekit.cloud', data.token, {
+      await livekitRoom.connect('wss://aiagent-i9rqezpr.livekit.cloud', prompt.token, {
         autoSubscribe: true
       });
       setRoom(livekitRoom);
