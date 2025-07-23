@@ -1672,7 +1672,12 @@ const changePrompt = (session, prompt, tools) => {
 
 // Initialize Express server
 const app = express();
-app.use(cors());
+app.use(cors({
+    origin: 'https://call.shipfast.studio',
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    maxAge: 86400
+}));
 app.use(express.json());
 
 // Session Management Instance

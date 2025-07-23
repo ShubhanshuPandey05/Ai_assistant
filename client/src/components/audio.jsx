@@ -164,6 +164,14 @@ const Audio = () => {
       const newRoomName = 'room-' + Math.random().toString(36).substring(2, 10);
       setRoomName(newRoomName);
 
+
+      console.log({
+        roomName: newRoomName,
+        userData: selectedPhone,
+        prompt: editingPrompt,
+        tool: selectedFunction
+      })
+
       // 2. Ask server to create room and join agent
       const roomCreation = await fetch(`${SERVER_URL}/create-room`, {
         method: 'POST',
