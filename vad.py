@@ -1,322 +1,301 @@
-# import sys
-# import torch
-# import numpy as np
-# import json
-# from collections import deque
-
-# # Load model
-# model, utils = torch.hub.load('snakers4/silero-vad', model='silero_vad', trust_repo=True)
-# (get_speech_timestamps, _, _, _, _) = utils
-
-# # Constants
-# sample_rate = 16000
-# chunk_duration = 0.5  # seconds
-# chunk_samples = int(sample_rate * chunk_duration)
-# frame_bytes = chunk_samples * 2  # 16-bit PCM = 2 bytes per sample
-# threshold = 0.6  # lower threshold for more sensitivity
-# prefix_duration = 0.2  # 200ms
-# prefix_samples = int(sample_rate * prefix_duration)
-# prefix_buffer = deque(maxlen=prefix_samples)
-
-# audio_buffer = bytearray()
-# total_samples_processed = 0
-# in_speech = False
-
-# print("ready", file=sys.stderr)
-
-# while True:
-#     data = sys.stdin.buffer.read(1024)
-#     if not data:
-#         break
-
-#     audio_buffer.extend(data)
-
-#     while len(audio_buffer) >= frame_bytes:
-#         chunk = audio_buffer[:frame_bytes]
-#         audio_buffer = audio_buffer[frame_bytes:]
-
-#         audio_np = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
-#         prefix_buffer.extend(audio_np)
-
-#         timestamps = get_speech_timestamps(
-#             audio_np,
-#             model,
-#             sampling_rate=sample_rate,
-#             threshold=threshold,
-#             min_speech_duration_ms=100
-#         )
-
-#         if timestamps:
-#             if not in_speech:
-#                 in_speech = True
-#                 prefix_np = np.array(prefix_buffer, dtype=np.float32)
-#                 prefix_hex = (prefix_np * 32768.0).astype(np.int16).tobytes().hex()
-
-#                 sys.stdout.write(json.dumps({
-#                     'event': 'speech_start',
-#                     'timestamps': [],
-#                     'chunk': prefix_hex
-#                 }) + "\n")
-#                 sys.stdout.flush()
-
-#             for ts in timestamps:
-#                 ts['start'] += total_samples_processed
-#                 ts['end'] += total_samples_processed
-
-#             sys.stdout.write(json.dumps({
-#                 'event': 'speech',
-#                 'timestamps': timestamps,
-#                 'chunk': chunk.hex()
-#             }) + "\n")
-#             sys.stdout.flush()
-
-#         else:
-#             # Fallback: if audio is loud enough, assume speech
-#             if not in_speech and np.max(np.abs(audio_np)) > 0.2:
-#                 in_speech = True
-#                 sys.stdout.write(json.dumps({
-#                     'event': 'manual_speech_trigger',
-#                     'chunk': chunk.hex()
-#                 }) + "\n")
-#                 sys.stdout.flush()
-#             elif in_speech:
-#                 in_speech = False
-#                 sys.stdout.write(json.dumps({'event': 'speech_end'}) + "\n")
-#                 sys.stdout.flush()
-
-#         total_samples_processed += len(audio_np)
-
-# # Final flush if needed
-# if len(audio_buffer) >= frame_bytes:
-#     chunk = audio_buffer[:frame_bytes]
-#     audio_np = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
-#     timestamps = get_speech_timestamps(audio_np, model, sampling_rate=sample_rate, threshold=threshold)
-#     for ts in timestamps:
-#         ts['start'] += total_samples_processed
-#         ts['end'] += total_samples_processed
-#     sys.stdout.write(json.dumps({'event': 'speech', 'timestamps': timestamps, 'chunk': chunk.hex()}) + "\n")
-#     sys.stdout.flush()
-
-
-
 import sys
 import torch
 import numpy as np
 import json
+import logging
+import argparse
 from collections import deque
+from typing import List, Dict, Optional, Tuple
+from dataclasses import dataclass
+import time
 
-# Load model
-model, utils = torch.hub.load('snakers4/silero-vad', model='silero_vad', trust_repo=True)
-(get_speech_timestamps, _, _, _, _) = utils
+@dataclass
+class VADConfig:
+    """Configuration for VAD system"""
+    sample_rate: int = 16000
+    chunk_duration: float = 0.25  # seconds
+    threshold: float = 0.5
+    prefix_duration: float = 0.1  # seconds
+    suffix_duration: float = 0.1  # seconds
+    min_speech_duration: float = 0.1  # minimum speech segment length
+    min_silence_duration: float = 0.3  # minimum silence to end speech
+    read_size: int = 4096  # larger reads for better performance
+    
+    def __post_init__(self):
+        self.chunk_samples = int(self.sample_rate * self.chunk_duration)
+        self.frame_bytes = self.chunk_samples * 2  # 16-bit PCM
+        self.prefix_samples = int(self.sample_rate * self.prefix_duration)
+        self.suffix_samples = int(self.sample_rate * self.suffix_duration)
+        self.min_speech_samples = int(self.sample_rate * self.min_speech_duration)
+        self.min_silence_samples = int(self.sample_rate * self.min_silence_duration)
 
-# Constants
-sample_rate = 16000
-min_chunk_samples = sample_rate // 4  # 0.5 seconds = 4000 samples
-frame_bytes = min_chunk_samples * 4  # 16-bit PCM = 2 bytes per sample
-threshold = 0.5
-prefix_duration = 0.1  # 200ms
-prefix_samples = int(sample_rate * prefix_duration)
-prefix_buffer = deque(maxlen=prefix_samples)
-
-audio_buffer = bytearray()
-total_samples_processed = 0
-in_speech = False
-
-print("ready", file=sys.stderr)
-
-while True:
-    data = sys.stdin.buffer.read(1024)
-    if not data:
-        break
-
-    audio_buffer.extend(data)
-
-    while len(audio_buffer) >= frame_bytes:
-        chunk = audio_buffer[:frame_bytes]
-        audio_buffer = audio_buffer[frame_bytes:]
-
-        audio_np = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
-
-        # Maintain prefix buffer (older audio)
-        prefix_buffer.extend(audio_np)
-
-        timestamps = get_speech_timestamps(audio_np, model, sampling_rate=sample_rate, threshold=threshold)
-
-        if timestamps:
-            # First time speech detected: prepend prefix audio
-            if not in_speech:
-                in_speech = True
-                prefix_np = np.array(prefix_buffer, dtype=np.float32)
-                prefix_hex = (prefix_np * 32768.0).astype(np.int16).tobytes().hex()
-
-                sys.stdout.write(json.dumps({
-                    'event': 'speech_start',
-                    'timestamps': [],
-                    'chunk': prefix_hex
-                }) + "\n")
-                sys.stdout.flush()
-
-            # Adjust timestamps to global position
-            for ts in timestamps:
-                ts['start'] += total_samples_processed
-                ts['end'] += total_samples_processed
-
-            sys.stdout.write(json.dumps({
-                'event': 'speech',
-                'timestamps': timestamps,
-                'chunk': chunk.hex()
-            }) + "\n")
+class ImprovedVAD:
+    def __init__(self, config: VADConfig):
+        self.config = config
+        self.setup_logging()
+        self.load_model()
+        self.reset_state()
+        
+    def setup_logging(self):
+        """Setup logging to stderr"""
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            stream=sys.stderr
+        )
+        self.logger = logging.getLogger(__name__)
+        
+    def load_model(self):
+        """Load Silero VAD model with error handling"""
+        try:
+            self.logger.info("Loading Silero VAD model...")
+            self.model, utils = torch.hub.load(
+                'snakers4/silero-vad', 
+                model='silero_vad', 
+                trust_repo=True,
+                verbose=False
+            )
+            self.get_speech_timestamps = utils[0]
+            
+            # Optimize model for inference
+            self.model.eval()
+            if torch.cuda.is_available():
+                self.model = self.model.cuda()
+                self.logger.info("Using CUDA acceleration")
+            else:
+                self.model = self.model.cpu()
+                
+            self.logger.info("Model loaded successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to load model: {e}")
+            sys.exit(1)
+            
+    def reset_state(self):
+        """Reset internal state"""
+        self.audio_buffer = bytearray()
+        self.prefix_buffer = deque(maxlen=self.config.prefix_samples)
+        self.suffix_buffer = deque(maxlen=self.config.suffix_samples)
+        self.total_samples_processed = 0
+        self.in_speech = False
+        self.speech_start_sample = 0
+        self.silence_samples = 0
+        self.current_speech_samples = 0
+        
+    def bytes_to_float32(self, audio_bytes: bytes) -> np.ndarray:
+        """Convert 16-bit PCM bytes to normalized float32"""
+        return np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+        
+    def float32_to_bytes(self, audio_float: np.ndarray) -> bytes:
+        """Convert normalized float32 to 16-bit PCM bytes"""
+        return (audio_float * 32768.0).astype(np.int16).tobytes()
+        
+    def detect_speech_in_chunk(self, audio_np: np.ndarray) -> List[Dict]:
+        """Detect speech in audio chunk with error handling"""
+        try:
+            # Move to GPU if available
+            if torch.cuda.is_available():
+                audio_tensor = torch.from_numpy(audio_np).cuda()
+            else:
+                audio_tensor = torch.from_numpy(audio_np)
+                
+            with torch.no_grad():
+                timestamps = self.get_speech_timestamps(
+                    audio_tensor,
+                    self.model,
+                    sampling_rate=self.config.sample_rate,
+                    threshold=self.config.threshold,
+                    min_speech_duration_ms=int(self.config.min_speech_duration * 1000),
+                    min_silence_duration_ms=int(self.config.min_silence_duration * 1000)
+                )
+            return timestamps
+        except Exception as e:
+            self.logger.error(f"Error in speech detection: {e}")
+            return []
+            
+    def emit_event(self, event_type: str, timestamps: List[Dict] = None, 
+                   chunk: Optional[bytes] = None, metadata: Dict = None):
+        """Emit JSON event with error handling"""
+        try:
+            event = {
+                'event': event_type,
+                'timestamp': time.time(),
+                'sample_position': self.total_samples_processed
+            }
+            
+            if timestamps:
+                event['timestamps'] = timestamps
+            if chunk:
+                event['chunk'] = chunk.hex()
+            if metadata:
+                event.update(metadata)
+                
+            sys.stdout.write(json.dumps(event) + "\n")
             sys.stdout.flush()
-
+        except Exception as e:
+            self.logger.error(f"Error emitting event: {e}")
+            
+    def handle_speech_start(self, audio_np: np.ndarray, timestamps: List[Dict]):
+        """Handle start of speech detection"""
+        self.in_speech = True
+        self.speech_start_sample = self.total_samples_processed
+        self.current_speech_samples = len(audio_np)
+        self.silence_samples = 0
+        
+        # Create prefix audio from buffer
+        prefix_audio = np.array(list(self.prefix_buffer), dtype=np.float32)
+        combined_audio = np.concatenate([prefix_audio, audio_np])
+        
+        # Adjust timestamps for prefix
+        adjusted_timestamps = []
+        for ts in timestamps:
+            adjusted_ts = ts.copy()
+            adjusted_ts['start'] += len(prefix_audio)
+            adjusted_ts['end'] += len(prefix_audio)
+            adjusted_timestamps.append(adjusted_ts)
+            
+        self.emit_event(
+            'speech_start',
+            adjusted_timestamps,
+            self.float32_to_bytes(combined_audio),
+            {'prefix_samples': len(prefix_audio)}
+        )
+        
+    def handle_speech_continue(self, audio_np: np.ndarray, timestamps: List[Dict]):
+        """Handle continuation of speech"""
+        self.current_speech_samples += len(audio_np)
+        self.silence_samples = 0
+        
+        # Adjust timestamps to global position
+        for ts in timestamps:
+            ts['start'] += self.total_samples_processed
+            ts['end'] += self.total_samples_processed
+            
+        self.emit_event(
+            'speech_continue',
+            timestamps,
+            self.float32_to_bytes(audio_np)
+        )
+        
+    def handle_speech_end(self):
+        """Handle end of speech detection"""
+        if self.current_speech_samples >= self.config.min_speech_samples:
+            # Add suffix audio for natural ending
+            suffix_audio = np.array(list(self.suffix_buffer), dtype=np.float32)
+            
+            self.emit_event(
+                'speech_end',
+                metadata={
+                    'speech_duration_samples': self.current_speech_samples,
+                    'speech_duration_seconds': self.current_speech_samples / self.config.sample_rate,
+                    'suffix_samples': len(suffix_audio)
+                }
+            )
+            
+            if len(suffix_audio) > 0:
+                self.emit_event(
+                    'speech_suffix',
+                    chunk=self.float32_to_bytes(suffix_audio)
+                )
+        
+        self.in_speech = False
+        self.current_speech_samples = 0
+        
+    def process_chunk(self, audio_np: np.ndarray):
+        """Process a single audio chunk"""
+        # Update buffers
+        self.prefix_buffer.extend(audio_np)
+        if self.in_speech:
+            self.suffix_buffer.extend(audio_np)
+            
+        # Detect speech
+        timestamps = self.detect_speech_in_chunk(audio_np)
+        
+        if timestamps:
+            if not self.in_speech:
+                self.handle_speech_start(audio_np, timestamps)
+            else:
+                self.handle_speech_continue(audio_np, timestamps)
         else:
-            if in_speech:
-                in_speech = False
-                sys.stdout.write(json.dumps({'event': 'speech_end'}) + "\n")
-                sys.stdout.flush()
+            # No speech detected
+            if self.in_speech:
+                self.silence_samples += len(audio_np)
+                # End speech if silence duration exceeded
+                if self.silence_samples >= self.config.min_silence_samples:
+                    self.handle_speech_end()
+                    
+        self.total_samples_processed += len(audio_np)
+        
+    def process_remaining_buffer(self):
+        """Process any remaining audio in buffer"""
+        if len(self.audio_buffer) >= 2:  # At least one sample
+            # Pad to chunk size if needed
+            remaining_bytes = len(self.audio_buffer)
+            if remaining_bytes < self.config.frame_bytes:
+                padding = self.config.frame_bytes - remaining_bytes
+                self.audio_buffer.extend(b'\x00' * padding)
+                
+            chunk = bytes(self.audio_buffer[:self.config.frame_bytes])
+            audio_np = self.bytes_to_float32(chunk)
+            self.process_chunk(audio_np)
+            
+        # Final speech end if still in speech
+        if self.in_speech:
+            self.handle_speech_end()
+            
+    def run(self):
+        """Main processing loop"""
+        self.logger.info("VAD system ready")
+        self.emit_event('system_ready', metadata={'config': self.config.__dict__})
+        
+        try:
+            while True:
+                data = sys.stdin.buffer.read(self.config.read_size)
+                if not data:
+                    break
+                    
+                self.audio_buffer.extend(data)
+                
+                # Process complete chunks
+                while len(self.audio_buffer) >= self.config.frame_bytes:
+                    chunk = bytes(self.audio_buffer[:self.config.frame_bytes])
+                    self.audio_buffer = self.audio_buffer[self.config.frame_bytes:]
+                    
+                    audio_np = self.bytes_to_float32(chunk)
+                    self.process_chunk(audio_np)
+                    
+        except KeyboardInterrupt:
+            self.logger.info("Interrupted by user")
+        except Exception as e:
+            self.logger.error(f"Unexpected error: {e}")
+        finally:
+            self.process_remaining_buffer()
+            self.emit_event('system_shutdown')
+            self.logger.info("VAD system shutdown")
 
-        total_samples_processed += len(audio_np)
+def main():
+    parser = argparse.ArgumentParser(description='Improved Voice Activity Detection System')
+    parser.add_argument('--sample-rate', type=int, default=16000, help='Audio sample rate')
+    parser.add_argument('--threshold', type=float, default=0.5, help='VAD threshold')
+    parser.add_argument('--chunk-duration', type=float, default=0.25, help='Chunk duration in seconds')
+    parser.add_argument('--min-speech', type=float, default=0.1, help='Minimum speech duration')
+    parser.add_argument('--min-silence', type=float, default=0.3, help='Minimum silence duration')
+    parser.add_argument('--prefix-duration', type=float, default=0.1, help='Prefix duration')
+    parser.add_argument('--suffix-duration', type=float, default=0.1, help='Suffix duration')
+    
+    args = parser.parse_args()
+    
+    config = VADConfig(
+        sample_rate=args.sample_rate,
+        threshold=args.threshold,
+        chunk_duration=args.chunk_duration,
+        min_speech_duration=args.min_speech,
+        min_silence_duration=args.min_silence,
+        prefix_duration=args.prefix_duration,
+        suffix_duration=args.suffix_duration
+    )
+    
+    vad = ImprovedVAD(config)
+    vad.run()
 
-# Optional: handle remaining buffer
-if len(audio_buffer) >= frame_bytes:
-    chunk = audio_buffer[:frame_bytes]
-    audio_np = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
-    timestamps = get_speech_timestamps(audio_np, model, sampling_rate=sample_rate, threshold=threshold)
-    for ts in timestamps:
-        ts['start'] += total_samples_processed
-        ts['end'] += total_samples_processed
-    sys.stdout.write(json.dumps({'event': 'speech', 'timestamps': timestamps, 'chunk': chunk.hex()}) + "\n")
-    sys.stdout.flush()
-
-
-
-
-# #!/usr/bin/env python3
-# # --------------------------------------------------------------------
-# #  🎙  48 kHz  →  16 kHz   VAD bridge for Silero
-# #  • Input : 48 000 Hz, mono, 16-bit PCM, *any* chunk length
-# #            (denoiser gives 480-sample / 960-byte frames, but we’ll
-# #             happily receive arbitrary multiples)
-# #  • Output: JSON lines identical to your previous script
-# # --------------------------------------------------------------------
-# import sys
-# import torch
-# import numpy as np
-# import json
-# from collections import deque
-
-# # ────────────────────────── Silero VAD ──────────────────────────────
-# model, utils = torch.hub.load('snakers4/silero-vad',
-#                               model='silero_vad',
-#                               trust_repo=True)
-# (get_speech_timestamps, _, _, _, _) = utils
-
-# # ─────────────────────────── Constants ──────────────────────────────
-# IN_SR   = 48_000          # denoiser output sample-rate
-# VAD_SR  = 16_000          # Silero works at 8k / 16k / 32k
-# CHUNK_SEC  = 0.25         # process every 250 ms
-# CHUNK_SMP  = int(IN_SR * CHUNK_SEC)       # 12 000 samples
-# CHUNK_BYTES = CHUNK_SMP * 2               # int16 → 2 bytes
-# THRESHOLD = 0.6
-
-# PREFIX_SEC = 0.1                          # 100 ms look-back
-# PREFIX_SMP = int(VAD_SR * PREFIX_SEC)     # 1600 samples @16k
-# prefix_buffer = deque(maxlen=PREFIX_SMP)  # stores **resampled** audio
-
-# audio_buf  = bytearray()
-# total_smp_processed = 0
-# in_speech = False
-
-# print("ready", file=sys.stderr)
-
-# # ───────────────────────── Helper: 48k → 16k ───────────────────────
-# def downsample_48k_to_16k(x: np.ndarray) -> np.ndarray:
-#     """
-#     Cheap linear-phase decimator: take every 3rd sample average.
-#     Good enough for VAD; avoids torchaudio dependency.
-#     """
-#     x = x.reshape(-1, 3)                  # [N / 3 , 3]
-#     return x.mean(axis=1)
-
-# # ──────────────────────────── Main Loop ────────────────────────────
-# while True:
-#     data = sys.stdin.buffer.read(1024)
-#     if not data:
-#         break
-
-#     audio_buf.extend(data)
-
-#     # process in 250 ms blocks (or whatever CHUNK_SEC is)
-#     while len(audio_buf) >= CHUNK_BYTES:
-#         block = audio_buf[:CHUNK_BYTES]
-#         audio_buf = audio_buf[CHUNK_BYTES:]
-
-#         # -------- int16 → float32 @48 kHz --------------------------
-#         pcm48 = np.frombuffer(block, dtype=np.int16).astype(np.float32) / 32768.0
-
-#         # -------- ↓↓↓   resample to 16 kHz   ↓↓↓ -------------------
-#         pcm16 = downsample_48k_to_16k(pcm48)               # float32
-#         prefix_buffer.extend(pcm16)                        # keep look-back
-
-#         # -------- VAD ---------------------------------------------
-#         ts_list = get_speech_timestamps(pcm16,
-#                                         model,
-#                                         sampling_rate=VAD_SR,
-#                                         threshold=THRESHOLD)
-
-#         if ts_list:                                        # speech present
-#             if not in_speech:                              # 1st frame
-#                 in_speech = True
-#                 pre_np = np.array(prefix_buffer, dtype=np.float32)
-#                 pre_hex = (pre_np * 32768.0)\
-#                           .astype(np.int16)\
-#                           .tobytes()\
-#                           .hex()
-#                 sys.stdout.write(json.dumps({
-#                     'event': 'speech_start',
-#                     'timestamps': [],
-#                     'chunk': pre_hex
-#                 }) + '\n')
-#                 sys.stdout.flush()
-
-#             # adjust timestamps to stream-wide sample index (*at 16 kHz*)
-#             for ts in ts_list:
-#                 ts['start'] += total_smp_processed
-#                 ts['end']   += total_smp_processed
-
-#             chunk_hex = (pcm16 * 32768.0)\
-#                         .astype(np.int16)\
-#                         .tobytes()\
-#                         .hex()
-
-#             sys.stdout.write(json.dumps({
-#                 'event': 'speech',
-#                 'timestamps': ts_list,
-#                 'chunk': chunk_hex
-#             }) + '\n')
-#             sys.stdout.flush()
-
-#         else:                                              # no speech
-#             if in_speech:
-#                 in_speech = False
-#                 sys.stdout.write(json.dumps({'event': 'speech_end'}) + '\n')
-#                 sys.stdout.flush()
-
-#         total_smp_processed += len(pcm16)                  # 16 kHz samples
-
-# # ───────────────────── flush any leftover frames ───────────────────
-# if audio_buf:
-#     pcm48 = np.frombuffer(audio_buf, dtype=np.int16)\
-#              .astype(np.float32) / 32768.0
-#     pcm16 = downsample_48k_to_16k(pcm48)
-#     ts_list = get_speech_timestamps(pcm16,
-#                                     model,
-#                                     sampling_rate=VAD_SR,
-#                                     threshold=THRESHOLD)
-#     if ts_list:
-#         chunk_hex = (pcm16 * 32768.0).astype(np.int16).tobytes().hex()
-#         sys.stdout.write(json.dumps({
-#             'event': 'speech',
-#             'timestamps': ts_list,
-#             'chunk': chunk_hex
-#         }) + '\n')
-#         sys.stdout.flush()
+if __name__ == "__main__":
+    main()

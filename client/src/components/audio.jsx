@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Room, RoomEvent, DataPacket_Kind, RemoteParticipant, RemoteTrackPublication, RemoteAudioTrack } from 'livekit-client';
 import { Settings, Check, Phone, PhoneCall } from 'lucide-react';
 
-// const SERVER_URL = 'http://localhost:5001';
-const SERVER_URL = 'https://call-server.shipfast.studio/livekit';
+const SERVER_URL = 'http://localhost:5001';
+// const SERVER_URL = 'https://call-server.shipfast.studio/livekit';
 
 const Audio = () => {
   const [isConnected, setIsConnected] = useState(false);
@@ -17,7 +17,7 @@ const Audio = () => {
   const [isMicOn, setIsMicOn] = useState(false);
   const audioRef = useRef(null);
   const [selectedPhone, setSelectedPhone] = useState('');
-  const [currentPrompt, setCurrentPrompt] = useState(`You are an AI assistant for "Gautam Garment" Shopify store. 
+  const [currentPrompt, setCurrentPrompt] = useState(`You are an AI assistant for ecommerce store. 
 **Process:**
 1. Understand user intent
 2. Use tools if you need store data (products, orders, customers)
@@ -26,7 +26,7 @@ const Audio = () => {
 "response": "your answer here",
 "output_channel": "audio"
 }`);
-  const [editingPrompt, setEditingPrompt] = useState(`You are an AI assistant for "Gautam Garment" Shopify store. 
+  const [editingPrompt, setEditingPrompt] = useState(`You are an AI assistant for ecommerce store. 
 **Process:**
 1. Understand user intent
 2. Use tools if you need store data (products, orders, customers)
