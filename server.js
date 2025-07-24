@@ -2440,7 +2440,7 @@ wss.on('connection', (ws, req) => {
                                         if (!currentSession.isTalking && !currentSession.isVadSpeechActive) {
                                             await handleTurnCompletion(currentSession)
                                         }
-                                    }, 5000)
+                                    }, 1000)
                                 }
                             }
                         })();
