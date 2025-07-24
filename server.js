@@ -2419,9 +2419,11 @@ wss.on('connection', (ws, req) => {
 
                     // 3. Ask the service if the turn is complete.
                     // const isComplete = await turnDetector.CheckEndOfTurn({ messages: messagesForDetection })
+                    let turnTime = Date.now();
 
                     turnDetector.CheckEndOfTurn({ messages: messagesForDetection }, (err, response) => {
                         (async () => {
+                            console.log("turnTime: ", Date.now() - turnTime);
                             if (err) {
                                 console.error('❌ gRPC Error:', err);
                             } else {
