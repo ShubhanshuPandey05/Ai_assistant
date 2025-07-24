@@ -11,8 +11,8 @@ from onnxruntime import InferenceSession, SessionOptions, GraphOptimizationLevel
 import onnxruntime as ort
 
 class ConversationTurnDetector:
-    HF_MODEL_ID = "HuggingFaceTB/SmolLM2-360M-Instruct"
-    ONNX_MODEL_DIR = "./onnx_model_2"
+    HF_MODEL_ID = "HuggingFaceTB/SmolLM2-135M-Instruct"
+    ONNX_MODEL_DIR = "./onnx_model_3"
     MAX_HISTORY = 2
     DEFAULT_THRESHOLD = 0.03
 
