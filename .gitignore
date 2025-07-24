@@ -10,6 +10,7 @@ __pycache__/
 
 
 onnx_model/
+onnx_model_2/
 
 # Environment variables
 .env

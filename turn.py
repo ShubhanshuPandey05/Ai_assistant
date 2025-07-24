@@ -1,47 +1,67 @@
 import os
 import math
 import torch
+import numpy as np
 from typing import List, Dict, Tuple, Any
 
 from transformers import AutoTokenizer
 from optimum.onnxruntime import ORTModelForCausalLM
 from optimum.exporters.onnx import main_export
-
+from onnxruntime import InferenceSession, SessionOptions, GraphOptimizationLevel
+import onnxruntime as ort
 
 class ConversationTurnDetector:
     HF_MODEL_ID = "HuggingFaceTB/SmolLM2-360M-Instruct"
-    ONNX_MODEL_DIR = "./onnx_model"
+    ONNX_MODEL_DIR = "./onnx_model_2"
     MAX_HISTORY = 2
     DEFAULT_THRESHOLD = 0.03
 
     def __init__(self, threshold: float = DEFAULT_THRESHOLD):
         self.threshold = threshold
+        self._prepare_environment()
 
-        # Export ONNX model if not already present
+        # Export ONNX model if not present
         if not os.path.exists(self.ONNX_MODEL_DIR):
             print("🔄 Exporting model to ONNX format...")
             main_export(
                 model_name_or_path=self.HF_MODEL_ID,
                 output=self.ONNX_MODEL_DIR,
                 task="text-generation",
-                use_cache=False  # important: disable cache for ONNX unless explicitly supported
+                use_cache=True
             )
             print("✅ Model exported to ONNX.")
 
-        # Load tokenizer and ONNX model
+        # Load tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(self.HF_MODEL_ID, use_fast=True)
-        self.model = ORTModelForCausalLM.from_pretrained(self.ONNX_MODEL_DIR)
 
-        # Disable use_cache to prevent ONNX runtime errors
-        self.model.generation_config.use_cache = False
+        # Load ONNX model with optimized session options
+        self.model = ORTModelForCausalLM.from_pretrained(
+            self.ONNX_MODEL_DIR,
+            session_options=self._get_optimized_session_options(),
+            file_name="model-int8.onnx"
+        )
+        self.model.generation_config.use_cache = False  # Prevent ONNX cache bugs
 
         self._warmup()
 
+    def _prepare_environment(self):
+        # Optional: for server threading boost
+        os.environ["OMP_NUM_THREADS"] = "4"
+        os.environ["MKL_NUM_THREADS"] = "4"
+
+    def _get_optimized_session_options(self):
+        import onnxruntime as ort
+        options = ort.SessionOptions()
+        options.execution_mode = ort.ExecutionMode.ORT_PARALLEL
+        options.intra_op_num_threads = 4  # Tune this based on your CPU cores
+        options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        return options
+
     def _warmup(self):
-        dummy = self.tokenizer("Hello", return_tensors="pt")
+        prompt = "Hello!"
+        inputs = self.tokenizer(prompt, return_tensors="pt", add_special_tokens=False)
         with torch.no_grad():
-            # ✅ Explicitly disable use_cache to avoid ONNX errors
-            _ = self.model(**dummy, use_cache=False)
+            _ = self.model(**inputs, use_cache=False)
 
     def _convert_messages_to_chatml(self, messages: List[Dict[str, Any]]) -> str:
         if not messages:
@@ -56,13 +76,10 @@ class ConversationTurnDetector:
 
         eot_token = "<|im_end|>"
         last_eot_index = tokenized_convo.rfind(eot_token)
-        if last_eot_index != -1:
-            return tokenized_convo[:last_eot_index]
-        return tokenized_convo
+        return tokenized_convo[:last_eot_index] if last_eot_index != -1 else tokenized_convo
 
     def get_next_token_logprobs(self, prompt_text: str) -> Dict[str, float]:
         inputs = self.tokenizer(prompt_text, return_tensors="pt", add_special_tokens=False)
-
         with torch.no_grad():
             outputs = self.model(**inputs, use_cache=False)
 
@@ -72,18 +89,13 @@ class ConversationTurnDetector:
         k = 5
         top_vals, top_indices = torch.topk(log_probs, k)
 
-        top_logprobs = {}
-        for i in range(k):
-            token_id = top_indices[i].item()
-            token_str = self.tokenizer.decode([token_id])
-            logprob_val = top_vals[i].item()
-            top_logprobs[token_str] = logprob_val
-
-        return top_logprobs
+        return {
+            self.tokenizer.decode([top_indices[i].item()]): top_vals[i].item()
+            for i in range(k)
+        }
 
     def process_result(self, top_logprobs: Dict[str, float], target_tokens: List[str] = ["<|im_end|>"]) -> Tuple[float, str]:
-        max_prob = 0.0
-        best_token = ""
+        max_prob, best_token = 0.0, ""
 
         for token_str, logprob in top_logprobs.items():
             stripped_token = token_str.strip()
