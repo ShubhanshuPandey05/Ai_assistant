@@ -2337,9 +2337,8 @@ wss.on('connection', (ws, req) => {
             if (outputType === 'audio') {
                 // Your existing audio response logic
                 handleInterruption(session); // Stop any ongoing AI speech
-                const audioBuffer = await aiProcessing.synthesizeSpeech(processedText, session.id);
+                const audioBuffer = await aiProcessing.synthesizeSpeech3(processedText, session.id);
                 if (!audioBuffer) throw new Error("Failed to synthesize speech.");
-
                 const mulawBuffer = await audioUtils.convertMp3ToMulaw(audioBuffer, session.id);
                 if (mulawBuffer) {
                     session.interruption = false;
@@ -2705,7 +2704,7 @@ wss.on('connection', (ws, req) => {
                 //     announcementText = `Hello ${userDetails.firstName}, welcome to the Gautam Garments. How can I help you today?`;
                 // }
 
-                const mp3Buffer = await aiProcessing.synthesizeSpeech(announcementText, session.id);
+                const mp3Buffer = await aiProcessing.synthesizeSpeech3(announcementText, session.id);
                 if (mp3Buffer) {
                     const mulawBuffer = await audioUtils.convertMp3ToMulaw(mp3Buffer, session.id);
                     if (mulawBuffer) {
