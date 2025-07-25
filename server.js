@@ -1896,6 +1896,7 @@ function setupAudioProcessingForParticipant(participant, session) {
     // ]);
 
     session.vadProcess = spawn(process.env.PYTHON_PATH || 'python3', ['vad.py']);
+    // console.log('VAD process PID:', session.vadProcess);
     session.ffmpegProcess.stdout.pipe(session.vadProcess.stdin);
     session.ffmpegProcess.stderr.on('data', (data) => {
         console.error("Error in ffmpeg", data.toString());
@@ -1903,7 +1904,7 @@ function setupAudioProcessingForParticipant(participant, session) {
 
     // Handle VAD output
     session.vadProcess.stdout.on('data', (vadData) => {
-        // console.log("vad", vadData);
+        // console.log("vad");
         try {
             const parsedVAD = JSON.parse(vadData.toString());
             if (parsedVAD.event === 'speech_start') {
@@ -1937,7 +1938,18 @@ function setupAudioProcessingForParticipant(participant, session) {
                 }
             }
         } catch (err) {
+            console.log("vadData", vadData.toString())
+            console.log("vadData", vadData)
             console.error(`Session ${session.id}: VAD output parse error:`, err);
+        }
+    });
+    session.vadProcess.stderr.on('data', (data) => {
+        // These are just log messages, not errors
+        const message = data.toString().trim();
+        if (message.includes('ERROR')) {
+            console.error(`Session ${session.id}: VAD Error: ${message}`);
+        } else {
+            console.log(`Session ${session.id}: VAD Info: ${message}`);
         }
     });
 
@@ -2002,7 +2014,7 @@ function connectToDeepgram(session) {
                             console.error('❌ gRPC Error:', err);
                         } else {
                             if (response.end_of_turn) {
-                                console.log(`Session ${session.id}: ✅ Turn complete. Waiting for more input.`);
+                                console.log(`Session ${session.id}: ✅ Turn complete.`);
                                 if (!session.isVadSpeechActive) {
                                     await handleTurnCompletion(session);
                                 }
