@@ -17,24 +17,8 @@ const Audio = () => {
   const [isMicOn, setIsMicOn] = useState(false);
   const audioRef = useRef(null);
   const [selectedPhone, setSelectedPhone] = useState('');
-  const [currentPrompt, setCurrentPrompt] = useState(`You are an AI assistant for ecommerce store. 
-**Process:**
-1. Understand user intent
-2. Use tools if you need store data (products, orders, customers)
-3. Respond in JSON format:
-{
-"response": "your answer here",
-"output_channel": "audio"
-}`);
-  const [editingPrompt, setEditingPrompt] = useState(`You are an AI assistant for ecommerce store. 
-**Process:**
-1. Understand user intent
-2. Use tools if you need store data (products, orders, customers)
-3. Respond in JSON format:
-{
-"response": "your answer here",
-"output_channel": "audio"
-}`);
+  const [currentPrompt, setCurrentPrompt] = useState(`You are Friendly Assistant.`);
+  const [editingPrompt, setEditingPrompt] = useState(`You are Friendly Assistant.`);
   const [isPromptEditing, setIsPromptEditing] = useState(false);
   const [availableFunction, setAvailableFunction] = useState([
     {

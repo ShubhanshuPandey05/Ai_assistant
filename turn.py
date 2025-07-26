@@ -38,7 +38,7 @@ class ConversationTurnDetector:
         self.model = ORTModelForCausalLM.from_pretrained(
             self.ONNX_MODEL_DIR,
             session_options=self._get_optimized_session_options(),
-            file_name="model-int8.onnx"
+            file_name="model_int8.onnx"
         )
         self.model.generation_config.use_cache = False  # Prevent ONNX cache bugs
 

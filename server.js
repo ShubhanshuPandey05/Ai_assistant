@@ -1321,7 +1321,8 @@ const aiProcessing = {
             model: "gpt-4o-mini",
             input: input.message,
             instructions: session.prompt,
-            tools: session.tools
+            tools: session.tools,
+            // stream: true,
             // tools: toolDefinitions
         };
         if (session.lastResponseId) {
@@ -1902,47 +1903,74 @@ function setupAudioProcessingForParticipant(participant, session) {
         console.error("Error in ffmpeg", data.toString());
     });
 
-    // Handle VAD output
     session.vadProcess.stdout.on('data', (vadData) => {
-        // console.log("vad");
-        try {
-            const parsedVAD = JSON.parse(vadData.toString());
-            if (parsedVAD.event === 'speech_start') {
-                session.isVadSpeechActive = true;
-                console.log(`Session ${session.id}: VAD detected Speech START. Resetting Deepgram buffer.`);
-                session.vadDeepgramBuffer = Buffer.alloc(0);
-            } else if (parsedVAD.event === 'speech_end') {
-                session.isVadSpeechActive = false;
-                console.log(`Session ${session.id}: VAD detected Speech END.`);
-                if (session.vadDeepgramBuffer.length > 0 && session.dgSocket?.readyState === 1) {
-                    session.dgSocket.send(session.vadDeepgramBuffer);
+        // console.log("VAD raw data received");
+        
+        // Add new data to buffer
+        session.vadOutputBuffer += vadData.toString();
+        
+        // Split by lines
+        const lines = session.vadOutputBuffer.split('\n');
+        
+        // Keep the last incomplete line in buffer
+        session.vadOutputBuffer = lines.pop() || '';
+        
+        // Process each complete line
+        for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (!trimmedLine) continue;
+            
+            try {
+                const parsedVAD = JSON.parse(trimmedLine);
+                // console.log(`Session ${session.id}: VAD Event: ${parsedVAD.event}`);
+                
+                if (parsedVAD.event === 'speech_start') {
+                    session.isVadSpeechActive = true;
+                    console.log(`Session ${session.id}: VAD detected Speech START. Resetting Deepgram buffer.`);
                     session.vadDeepgramBuffer = Buffer.alloc(0);
+                } else if (parsedVAD.event === 'speech_end') {
+                    session.isVadSpeechActive = false;
+                    console.log(`Session ${session.id}: VAD detected Speech END.`);
+                
+                    // Send any remaining buffered audio
+                    if (session.vadDeepgramBuffer.length > 0 && session.dgSocket?.readyState === 1) {
+                        session.dgSocket.send(session.vadDeepgramBuffer);
+                        session.vadDeepgramBuffer = Buffer.alloc(0);
+                    }
+                
+                    // Introduce a small delay before sending the Finalize message
+                    setTimeout(() => {
+                        if (session.dgSocket?.readyState === 1) {
+                            console.log(`Session ${session.id}: Sending Deepgram Finalize message after delay.`);
+                            session.dgSocket.send(JSON.stringify({ "type": "Finalize" }));
+                        }
+                    }, 200); // A 100ms delay is usually sufficient
                 }
-                if (session.dgSocket?.readyState === 1) {
-                    console.log(`Session ${session.id}: Sending Deepgram Finalize message.`);
-                    session.dgSocket.send(JSON.stringify({ "type": "Finalize" }));
-                }
-            }
-
-            if (parsedVAD.chunk) {
-                console.log("got the speech")
-                const audioBuffer = Buffer.from(parsedVAD.chunk, 'hex');
-                session.vadDeepgramBuffer = Buffer.concat([session.vadDeepgramBuffer, audioBuffer]);
-                if (session.isVadSpeechActive && session.dgSocket?.readyState === 1) {
-                    while (session.vadDeepgramBuffer.length >= CONFIG.DEEPGRAM_STREAM_CHUNK_SIZE) {
-                        const chunkToSend = session.vadDeepgramBuffer.slice(0, CONFIG.DEEPGRAM_STREAM_CHUNK_SIZE);
-                        session.dgSocket.send(chunkToSend);
-                        session.vadDeepgramBuffer = session.vadDeepgramBuffer.slice(CONFIG.DEEPGRAM_STREAM_CHUNK_SIZE);
-                        session.audioStartTime = Date.now();
+    
+                // Handle audio chunks
+                if (parsedVAD.chunk) {
+                    console.log(`Session ${session.id}: Got speech chunk (${parsedVAD.chunk.length / 2} chars)`);
+                    const audioBuffer = Buffer.from(parsedVAD.chunk, 'hex');
+                    session.vadDeepgramBuffer = Buffer.concat([session.vadDeepgramBuffer, audioBuffer]);
+                    
+                    // Send chunks to Deepgram if speech is active
+                    if (session.isVadSpeechActive && session.dgSocket?.readyState === 1) {
+                        while (session.vadDeepgramBuffer.length >= CONFIG.DEEPGRAM_STREAM_CHUNK_SIZE) {
+                            // console.log("Sending chunk to Deepgram")
+                            const chunkToSend = session.vadDeepgramBuffer.slice(0, CONFIG.DEEPGRAM_STREAM_CHUNK_SIZE);
+                            session.dgSocket.send(chunkToSend);
+                            session.vadDeepgramBuffer = session.vadDeepgramBuffer.slice(CONFIG.DEEPGRAM_STREAM_CHUNK_SIZE);
+                            session.audioStartTime = Date.now();
+                        }
                     }
                 }
+            } catch (err) {
+                console.log(`Session ${session.id}: Failed to parse VAD line: "${trimmedLine}"`);
+                console.error(`Session ${session.id}: VAD output parse error:`, err.message);
             }
-        } catch (err) {
-            console.log("vadData", vadData.toString())
-            console.log("vadData", vadData)
-            console.error(`Session ${session.id}: VAD output parse error:`, err);
         }
     });
+    
     session.vadProcess.stderr.on('data', (data) => {
         // These are just log messages, not errors
         const message = data.toString().trim();
