@@ -22,9 +22,8 @@ const Audio = () => {
   const [isPromptEditing, setIsPromptEditing] = useState(false);
   const [availableFunction, setAvailableFunction] = useState([
     {
-      type: "function",
       name: "getAllProducts",
-      description: "Get a list of all products in the store.",
+      description: "Get all available products from the catalog",
       parameters: {
         type: "object",
         properties: {},
@@ -32,33 +31,38 @@ const Audio = () => {
       }
     },
     {
-      type: "function",
       name: "getUserDetailsByPhoneNo",
-      description: "Get customer details",
-      parameters: {
-        type: "object",
-        properties: {},
-        required: []
-      }
-    },
-    {
-      type: "function",
-      name: "getAllOrders",
-      description: "Get a list of all orders.",
-      parameters: {
-        type: "object",
-        properties: {},
-        required: []
-      }
-    },
-    {
-      type: "function",
-      name: "getOrderById",
-      description: "Get details for a specific order by its ID.",
+      description: "Get user details by phone number",
       parameters: {
         type: "object",
         properties: {
-          orderId: { type: "string", description: "The Shopify order ID." }
+          phoneNo: {
+            type: "string",
+            description: "User's phone number"
+          }
+        },
+        required: ["phoneNo"]
+      }
+    },
+    {
+      name: "getAllOrders",
+      description: "Get all orders from the system",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: []
+      }
+    },
+    {
+      name: "getOrderById",
+      description: "Get order details by order ID",
+      parameters: {
+        type: "object",
+        properties: {
+          orderId: {
+            type: "string",
+            description: "The unique order identifier"
+          }
         },
         required: ["orderId"]
       }

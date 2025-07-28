@@ -51,26 +51,26 @@ const roomService = new RoomServiceClient(LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_
 
 const toolDefinitions = [
     {
-        "name": "getAllProducts",
-        "description": "Get all available products from the catalog",
-        "parameters": {
-            "type": "object",
-            "properties": {},
-            "required": []
+        name: "getAllProducts",
+        description: "Get all available products from the catalog",
+        parameters: {
+            type: "object",
+            properties: {},
+            required: []
         }
     },
     {
-        "name": "getUserDetailsByPhoneNo",
-        "description": "Get user details by phone number",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "phoneNo": {
-                    "type": "string",
-                    "description": "User's phone number"
+        name: "getUserDetailsByPhoneNo",
+        description: "Get user details by phone number",
+        parameters: {
+            type: "object",
+            properties: {
+                phoneNo: {
+                    type: "string",
+                    description: "User's phone number"
                 }
             },
-            "required": ["phoneNo"]
+            required: ["phoneNo"]
         }
     },
     {
@@ -641,7 +641,6 @@ class SessionManager {
                     return currentSession
                 }
             }
-
             const id = generateRandomIdFromData(userData);
             const session = {
                 id: id,
@@ -1397,7 +1396,7 @@ const aiProcessing = {
         // Build the request for Gemini
         const geminiRequest = {
             contents: session.messages,
-            tools: toolDefinitions ? [{ functionDeclarations: toolDefinitions }] : undefined,
+            tools: session.tools ? [{ functionDeclarations: session.tools }] : undefined,
             // tools: toolDefinitions,
             generationConfig: {
                 maxOutputTokens: CONFIG.GPT_MAX_TOKENS || 150,
@@ -2725,7 +2724,7 @@ wss.on('connection', (ws, req) => {
             if (parsedData.event === 'start') {
                 // console.log('start',parsedData);
                 let userData = parsedData.start?.customParameters?.caller || parsedData.userData;
-                session = sessionManager.createSession(ws, userData, parsedData.prompt); // Pass ws to session manager
+                session = sessionManager.createSession(ws, userData, parsedData.prompt, parsedData.tools); // Pass ws to session manager
                 sessionId = session.id;
                 session.callSid = parsedData.start?.callSid;
                 session.streamSid = parsedData?.streamSid; // Confirm streamSid in session

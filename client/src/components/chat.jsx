@@ -17,9 +17,8 @@ const Chat = () => {
   const [isPromptEditing, setIsPromptEditing] = useState(false);
   const [availableFunction, setAvailableFunction] = useState([
     {
-      type: "function",
       name: "getAllProducts",
-      description: "Get a list of all products in the store.",
+      description: "Get all available products from the catalog",
       parameters: {
         type: "object",
         properties: {},
@@ -27,33 +26,38 @@ const Chat = () => {
       }
     },
     {
-      type: "function",
       name: "getUserDetailsByPhoneNo",
-      description: "Get customer details",
-      parameters: {
-        type: "object",
-        properties: {},
-        required: []
-      }
-    },
-    {
-      type: "function",
-      name: "getAllOrders",
-      description: "Get a list of all orders.",
-      parameters: {
-        type: "object",
-        properties: {},
-        required: []
-      }
-    },
-    {
-      type: "function",
-      name: "getOrderById",
-      description: "Get details for a specific order by its ID.",
+      description: "Get user details by phone number",
       parameters: {
         type: "object",
         properties: {
-          orderId: { type: "string", description: "The Shopify order ID." }
+          phoneNo: {
+            type: "string",
+            description: "User's phone number"
+          }
+        },
+        required: ["phoneNo"]
+      }
+    },
+    {
+      name: "getAllOrders",
+      description: "Get all orders from the system",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: []
+      }
+    },
+    {
+      name: "getOrderById",
+      description: "Get order details by order ID",
+      parameters: {
+        type: "object",
+        properties: {
+          orderId: {
+            type: "string",
+            description: "The unique order identifier"
+          }
         },
         required: ["orderId"]
       }
@@ -119,7 +123,8 @@ const Chat = () => {
           type: 'start_session',
           event: 'start',
           userData: selectedPhone,
-          prompt: editingPrompt
+          prompt: editingPrompt,
+          tools: selectedFunction
         }));
       };
 
@@ -334,52 +339,52 @@ const Chat = () => {
 
       {/* Prompt Box */}
       {
-          !isConnected ? (<div className="max-w-4xl mx-auto bg-black rounded-lg shadow-xl border border-gray-700 p-6 mb-6">
-            {/* Header */}
-            <div className="flex items-center gap-3 mb-6">
-              <Settings className="w-6 h-6 text-blue-600" />
-              <h2 className="md:text-2xl text-xl font-semibold text-white">Prompt Configuration</h2>
-            </div>
+        !isConnected ? (<div className="max-w-4xl mx-auto bg-black rounded-lg shadow-xl border border-gray-700 p-6 mb-6">
+          {/* Header */}
+          <div className="flex items-center gap-3 mb-6">
+            <Settings className="w-6 h-6 text-blue-600" />
+            <h2 className="md:text-2xl text-xl font-semibold text-white">Prompt Configuration</h2>
+          </div>
 
-            {/* Prompt Editor */}
-            <div className="mb-8">
-              <label className="block text-sm font-medium text-gray-300 mb-3">
-                System Prompt
-              </label>
-              <textarea
-                value={editingPrompt}
-                onChange={(e) => setEditingPrompt(e.target.value)}
-                placeholder="Enter your system prompt here..."
-                className="w-full text-xs md:text-base h-32 p-4 bg-gray-800 border border-gray-600 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-100 placeholder-gray-500"
-              />
-            </div>
+          {/* Prompt Editor */}
+          <div className="mb-8">
+            <label className="block text-sm font-medium text-gray-300 mb-3">
+              System Prompt
+            </label>
+            <textarea
+              value={editingPrompt}
+              onChange={(e) => setEditingPrompt(e.target.value)}
+              placeholder="Enter your system prompt here..."
+              className="w-full text-xs md:text-base h-32 p-4 bg-gray-800 border border-gray-600 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-100 placeholder-gray-500"
+            />
+          </div>
 
-            {/* Function Selection */}
-            <div className="text-xs md:text-base">
-              <label className="block text-sm font-medium text-gray-300 mb-4">
-                Available Functions
-              </label>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {availableFunction.map((func, index) => (
-                  <label
-                    key={index}
-                    className="flex items-center p-3 border border-gray-600 rounded-lg hover:bg-gray-800 cursor-pointer transition-colors"
-                  >
-                    <input
-                      type="checkbox"
-                      value={index}
-                      onChange={handleFunctionInput}
-                      checked={selectedFunction.includes(func)}
-                      className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
-                    />
-                    <span className="ml-3 text-gray-300 font-medium">{func.name}</span>
-                  </label>
-                ))}
-              </div>
+          {/* Function Selection */}
+          <div className="text-xs md:text-base">
+            <label className="block text-sm font-medium text-gray-300 mb-4">
+              Available Functions
+            </label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {availableFunction.map((func, index) => (
+                <label
+                  key={index}
+                  className="flex items-center p-3 border border-gray-600 rounded-lg hover:bg-gray-800 cursor-pointer transition-colors"
+                >
+                  <input
+                    type="checkbox"
+                    value={index}
+                    onChange={handleFunctionInput}
+                    checked={selectedFunction.includes(func)}
+                    className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
+                  />
+                  <span className="ml-3 text-gray-300 font-medium">{func.name}</span>
+                </label>
+              ))}
             </div>
+          </div>
 
-            {/* Action Button */}
-            {/* <div className="flex justify-end">
+          {/* Action Button */}
+          {/* <div className="flex justify-end">
               <button
                 onClick={handlePromptSave}
                 className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
@@ -388,8 +393,8 @@ const Chat = () => {
                 Save Configuration
               </button>
             </div> */}
-          </div>) : ""
-        }
+        </div>) : ""
+      }
     </div>
   );
 };
