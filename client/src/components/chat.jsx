@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Settings, Check, Phone, PhoneCall } from 'lucide-react';
-const SERVER_URL = 'http://localhost:5001';
-// const SERVER_URL = 'https://call-server.shipfast.studio/livekit';
+// const SERVER_URL = 'http://localhost:5001';
+const SERVER_URL = 'https://call-server.shipfast.studio/livekit';
 
 
 const Chat = () => {
@@ -12,8 +12,8 @@ const Chat = () => {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [selectedPhone, setSelectedPhone] = useState('');
-  const [currentPrompt, setCurrentPrompt] = useState('');
-  const [editingPrompt, setEditingPrompt] = useState('');
+  const [currentPrompt, setCurrentPrompt] = useState('You are a Helpful assistant');
+  const [editingPrompt, setEditingPrompt] = useState('You are a Helpful assistant');
   const [isPromptEditing, setIsPromptEditing] = useState(false);
   const [availableFunction, setAvailableFunction] = useState([
     {
@@ -108,8 +108,8 @@ const Chat = () => {
       setError(null);
 
       // Connect to WebSocket
-      wsRef.current = new WebSocket('ws://localhost:5002');
-      // wsRef.current = new WebSocket('wss://call-server.shipfast.studio/websocket/');
+      // wsRef.current = new WebSocket('ws://localhost:5002');
+      wsRef.current = new WebSocket('wss://call-server.shipfast.studio/websocket/');
 
       wsRef.current.onopen = () => {
         console.log('WebSocket connected, starting session...');
