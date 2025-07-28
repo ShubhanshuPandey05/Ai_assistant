@@ -93,139 +93,6 @@ const toolDefinitions = [
     }
 ];
 
-function detectTurnEnd(currentText, options = {}) {
-    // Configuration with defaults
-    const config = {
-        minLength: options.minLength || 2,
-        silenceThreshold: options.silenceThreshold || 800, // ms
-        punctuationWeight: options.punctuationWeight || 0.5,
-        questionWeight: options.questionWeight || 0.7,
-        statementWeight: options.statementWeight || 0.4,
-        ...options
-    };
-
-    // Early return for very short or empty text
-    if (!currentText || currentText.trim().length < config.minLength) {
-        return false;
-    }
-
-    const text = currentText.trim();
-    let score = 0;
-
-    // 1. Definitive sentence endings (high confidence)
-    const definitiveEndings = /[.!]\s*$/;
-    if (definitiveEndings.test(text)) {
-        score += 0.9;
-    }
-
-    // 2. Question completion patterns (very strong indicator)
-    const questionPatterns = [
-        /\?\s*$/,  // Direct question mark
-        /^(what|how|why|when|where|who|which|can|could|would|should|do|does|did|is|are|was|were)\b.*[?.]?\s*$/i,
-        /\b(right|okay|ok)\?\s*$/i,
-        /\b(you know|understand|make sense)\?\s*$/i
-    ];
-
-    if (questionPatterns.some(pattern => pattern.test(text))) {
-        score += config.questionWeight;
-    }
-
-    // 3. Natural completion phrases (strong indicators)
-    const completionPhrases = [
-        /\b(that's it|that's all|done|finished|complete)\b/i,
-        /\b(thank you|thanks|bye|goodbye|see you)\b/i,
-        /\b(anyway|anyhow|well|so|ok|okay|alright)\s*[.!]?\s*$/i,
-        /\b(never mind|forget it|doesn't matter)\b/i
-    ];
-
-    if (completionPhrases.some(pattern => pattern.test(text))) {
-        score += 0.8;
-    }
-
-    // 4. Response completion patterns
-    const responsePatterns = [
-        /\b(yes|no|sure|okay|alright|exactly|correct|right)\s*[.!]?\s*$/i,
-        /\b(I think|I believe|I guess|I suppose)\b.*[.!]\s*$/i,
-        /\b(maybe|probably|perhaps|possibly)\s*[.!]?\s*$/i
-    ];
-
-    if (responsePatterns.some(pattern => pattern.test(text))) {
-        score += 0.6;
-    }
-
-    // 5. Incomplete patterns (reduce score - indicates ongoing speech)
-    const incompletePatterns = [
-        /\b(and|but|or|so|because|since|although|while|if|when|where|that|which)\s*$/i,
-        /,\s*$/,  // Ends with comma
-        /\b(the|a|an)\s*$/i,  // Ends with articles
-        /\b(in|on|at|by|for|with|to|from)\s*$/i,  // Ends with prepositions
-        /\b(I'm|I am|I was|I will|I have|I had)\s*$/i,  // Incomplete statements
-        /\b(going to|want to|need to|have to)\s*$/i,  // Incomplete actions
-        /\b(kind of|sort of|type of)\s*$/i  // Incomplete descriptions
-    ];
-
-    if (incompletePatterns.some(pattern => pattern.test(text))) {
-        score -= 0.7;  // Strong penalty for incomplete patterns
-    }
-
-    // 6. Pause indicators and fillers (weak indicators)
-    const pauseFillers = [
-        /\b(um|uh|hmm|er|ah|eh)\s*$/i,
-        /\.{2,}\s*$/,  // Multiple dots
-        /\s{2,}$/  // Multiple spaces (can indicate pause)
-    ];
-
-    if (pauseFillers.some(pattern => pattern.test(text))) {
-        score += 0.3;  // Moderate indicator
-    }
-
-    // 7. Command/request completion
-    const commandPatterns = [
-        /^(please|can you|could you|would you)\b.*[.!]?\s*$/i,
-        /\b(help me|show me|tell me|give me|send me)\b.*[.!]?\s*$/i,
-        /\b(find|search|look for|check)\b.*[.!]?\s*$/i
-    ];
-
-    if (commandPatterns.some(pattern => pattern.test(text))) {
-        score += 0.5;
-    }
-
-    // 8. Length-based scoring (current text analysis)
-    const wordCount = text.split(/\s+/).filter(word => word.length > 0).length;
-    if (wordCount >= 3 && wordCount <= 15) {
-        score += 0.2;  // Good length for complete thoughts
-    }
-    if (wordCount > 20) {
-        score += 0.1;  // Longer text might be complete
-    }
-
-    // 9. Emotional expressions (often end turns)
-    const emotionalEndings = [
-        /\b(wow|great|amazing|awesome|terrible|awful|sad|happy|excited|surprised)\s*[!.]\s*$/i,
-        /[!]{2,}\s*$/,  // Multiple exclamation marks
-        /\b(oh no|oh wow|oh my|oh god|oh dear)\b/i
-    ];
-
-    if (emotionalEndings.some(pattern => pattern.test(text))) {
-        score += 0.4;
-    }
-
-    // 10. Conversational turn-taking cues
-    const turnTakingCues = [
-        /\b(you know|I mean|like I said|basically|actually|honestly|seriously)\b.*[.!]\s*$/i,
-        /\b(right|correct|exactly|precisely|absolutely)\s*[.!]?\s*$/i,
-        /\b(your turn|go ahead|over to you)\b/i
-    ];
-
-    if (turnTakingCues.some(pattern => pattern.test(text))) {
-        score += 0.5;
-    }
-
-    // Threshold-based decision (adjusted for real-time processing)
-    const threshold = 0.5;  // Lower threshold for real-time detection
-    return score >= threshold;
-}
-
 // Service Initialization
 const services = {
     twilio: new twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN),
@@ -833,7 +700,8 @@ class SessionManager {
                 isTalking: false,
                 tools: tool,
                 denoiser: null,
-                remainder: null
+                remainder: null,
+                message: []
             };
             userStorage.setActiveSession(userData, id);
             this.sessions.set(id, session);
@@ -1314,70 +1182,175 @@ const audioUtils = {
 
 // AI Processing
 const aiProcessing = {
+    // async processInput(input, session) {
+    //     // console.log("here are the sessions details :", session.prompt, session.tools)
+
+    //     const createResponseParams = {
+    //         model: "gpt-4o-mini",
+    //         input: input.message,
+    //         instructions: session.prompt,
+    //         tools: session.tools,
+    //         // stream: true,
+    //         // tools: toolDefinitions
+    //     };
+    //     if (session.lastResponseId) {
+    //         createResponseParams.previous_response_id = session.lastResponseId;
+    //     }
+    //     let processTimeStart = Date.now()
+    //     let response = await services.openai.responses.create(createResponseParams);
+    //     let processTime = Date.now() - processTimeStart
+    //     console.log("LLmProcessTime", processTime)
+    //     session.lastResponseId = response.id;
+
+    //     if (response.output[0].type === "function_call") {
+    //         const tool = []
+    //         let toolResult;
+
+    //         if (response.output[0].name === "getAllProducts") {
+    //             toolResult = await functions.getAllProducts();
+    //         } else if (response.output[0].name === "getUserDetailsByPhoneNo") {
+    //             toolResult = await functions.getUserDetailsByPhoneNo(session.caller);
+    //         } else if (response.output[0].name === "getAllOrders") {
+    //             toolResult = await functions.getAllOrders();
+    //         } else if (response.output[0].name === "getOrderById") {
+    //             toolResult = await functions.getOrderById(args.orderId);
+    //         } else {
+    //             toolResult = { error: "Unknown tool requested." };
+    //         }
+
+    //         tool.push({
+    //             type: "function_call_output",
+    //             call_id: response.output[0].call_id,
+    //             output: JSON.stringify({ toolResult })
+    //         });
+
+    //         response = await services.openai.responses.create({
+    //             model: "gpt-4o-mini",
+    //             instructions: session.prompt,
+    //             input: tool,
+    //             previous_response_id: session.lastResponseId
+    //         });
+    //         session.lastResponseId = response.id;
+    //     }
+
+    //     session.lastResponseId = response.id;
+
+
+    //     const messages = response.output || [];
+    //     const assistantMessage = messages.find(m => m.role === "assistant");
+
+    //     let parsedData;
+    //     try {
+    //         parsedData = JSON.parse(assistantMessage.content[0].text);
+    //         return { processedText: parsedData.response, outputType: parsedData.output_channel };
+    //     } catch (error) {
+    //         return {
+    //             processedText: assistantMessage.content[0].text || "Sorry, I had trouble understanding. Could you please rephrase?",
+    //             outputType: input.input_channel
+    //         };
+    //     }
+    // },
     async processInput(input, session) {
-        // console.log("here are the sessions details :", session.prompt, session.tools)
-
-        const createResponseParams = {
-            model: "gpt-4o-mini",
-            input: input.message,
-            instructions: session.prompt,
-            tools: session.tools,
-            // stream: true,
-            // tools: toolDefinitions
-        };
-        if (session.lastResponseId) {
-            createResponseParams.previous_response_id = session.lastResponseId;
+        // Initialize conversation history if not exists
+        if (!session.messages) {
+            session.messages = [
+                {
+                    role: "system",
+                    content: session.prompt
+                }
+            ];
         }
-        let processTimeStart = Date.now()
-        let response = await services.openai.responses.create(createResponseParams);
-        let processTime = Date.now() - processTimeStart
-        console.log("LLmProcessTime", processTime)
-        session.lastResponseId = response.id;
 
-        if (response.output[0].type === "function_call") {
-            const tool = []
-            let toolResult;
+        // Add user message to conversation
+        session.messages.push({
+            role: "user",
+            content: input.message
+        });
 
-            if (response.output[0].name === "getAllProducts") {
-                toolResult = await functions.getAllProducts();
-            } else if (response.output[0].name === "getUserDetailsByPhoneNo") {
-                toolResult = await functions.getUserDetailsByPhoneNo(session.caller);
-            } else if (response.output[0].name === "getAllOrders") {
-                toolResult = await functions.getAllOrders();
-            } else if (response.output[0].name === "getOrderById") {
-                toolResult = await functions.getOrderById(args.orderId);
-            } else {
-                toolResult = { error: "Unknown tool requested." };
+        const createChatParams = {
+            model: "gpt-4o-mini",
+            messages: session.messages,
+            tools: session.tools,
+            tool_choice: "auto", // Let the model decide when to use tools
+            max_tokens: CONFIG.GPT_MAX_TOKENS
+        };
+
+        let processTimeStart = Date.now();
+        let response = await services.openai.chat.completions.create(createChatParams);
+        let processTime = Date.now() - processTimeStart;
+        console.log("LLmProcessTime", processTime);
+
+        const assistantMessage = response.choices[0].message;
+
+        // Add assistant's response to conversation history
+        session.messages.push(assistantMessage);
+
+        // Check if the assistant wants to call a function
+        if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
+            // Process each tool call
+            for (const toolCall of assistantMessage.tool_calls) {
+                let toolResult;
+                const args = JSON.parse(toolCall.function.arguments);
+
+                if (toolCall.function.name === "getAllProducts") {
+                    toolResult = await functions.getAllProducts();
+                } else if (toolCall.function.name === "getUserDetailsByPhoneNo") {
+                    toolResult = await functions.getUserDetailsByPhoneNo(session.caller);
+                } else if (toolCall.function.name === "getAllOrders") {
+                    toolResult = await functions.getAllOrders();
+                } else if (toolCall.function.name === "getOrderById") {
+                    toolResult = await functions.getOrderById(args.orderId);
+                } else {
+                    toolResult = { error: "Unknown tool requested." };
+                }
+
+                // Add tool result to conversation
+                session.messages.push({
+                    role: "tool",
+                    tool_call_id: toolCall.id,
+                    content: JSON.stringify(toolResult)
+                });
             }
 
-            tool.push({
-                type: "function_call_output",
-                call_id: response.output[0].call_id,
-                output: JSON.stringify({ toolResult })
+            // Get final response after tool execution
+            response = await services.openai.chat.completions.create({
+                model: "gpt-4o-mini",
+                messages: session.messages,
+                tools: session.tools,
+                tool_choice: "auto",
+                max_tokens: CONFIG.GPT_MAX_TOKENS
             });
 
-            response = await services.openai.responses.create({
-                model: "gpt-4o-mini",
-                instructions: session.prompt,
-                input: tool,
-                previous_response_id: session.lastResponseId
-            });
-            session.lastResponseId = response.id;
+            const finalAssistantMessage = response.choices[0].message;
+            session.messages.push(finalAssistantMessage);
+
+            // Parse and return the final response
+            let parsedData;
+            try {
+                parsedData = JSON.parse(finalAssistantMessage.content);
+                return {
+                    processedText: parsedData.response,
+                    outputType: parsedData.output_channel
+                };
+            } catch (error) {
+                return {
+                    processedText: finalAssistantMessage.content || "Sorry, I had trouble understanding. Could you please rephrase?",
+                    outputType: input.input_channel
+                };
+            }
         }
 
-        session.lastResponseId = response.id;
-
-
-        const messages = response.output || [];
-        const assistantMessage = messages.find(m => m.role === "assistant");
-
+        // No tool calls - return direct response
         let parsedData;
         try {
-            parsedData = JSON.parse(assistantMessage.content[0].text);
-            return { processedText: parsedData.response, outputType: parsedData.output_channel };
+            parsedData = JSON.parse(assistantMessage.content);
+            return {
+                processedText: parsedData.response,
+                outputType: parsedData.output_channel
+            };
         } catch (error) {
             return {
-                processedText: assistantMessage.content[0].text || "Sorry, I had trouble understanding. Could you please rephrase?",
+                processedText: assistantMessage.content || "Sorry, I had trouble understanding. Could you please rephrase?",
                 outputType: input.input_channel
             };
         }
@@ -1905,25 +1878,25 @@ function setupAudioProcessingForParticipant(participant, session) {
 
     session.vadProcess.stdout.on('data', (vadData) => {
         // console.log("VAD raw data received");
-        
+
         // Add new data to buffer
         session.vadOutputBuffer += vadData.toString();
-        
+
         // Split by lines
         const lines = session.vadOutputBuffer.split('\n');
-        
+
         // Keep the last incomplete line in buffer
         session.vadOutputBuffer = lines.pop() || '';
-        
+
         // Process each complete line
         for (const line of lines) {
             const trimmedLine = line.trim();
             if (!trimmedLine) continue;
-            
+
             try {
                 const parsedVAD = JSON.parse(trimmedLine);
                 // console.log(`Session ${session.id}: VAD Event: ${parsedVAD.event}`);
-                
+
                 if (parsedVAD.event === 'speech_start') {
                     session.isVadSpeechActive = true;
                     console.log(`Session ${session.id}: VAD detected Speech START. Resetting Deepgram buffer.`);
@@ -1931,13 +1904,13 @@ function setupAudioProcessingForParticipant(participant, session) {
                 } else if (parsedVAD.event === 'speech_end') {
                     session.isVadSpeechActive = false;
                     console.log(`Session ${session.id}: VAD detected Speech END.`);
-                
+
                     // Send any remaining buffered audio
                     if (session.vadDeepgramBuffer.length > 0 && session.dgSocket?.readyState === 1) {
                         session.dgSocket.send(session.vadDeepgramBuffer);
                         session.vadDeepgramBuffer = Buffer.alloc(0);
                     }
-                
+
                     // Introduce a small delay before sending the Finalize message
                     setTimeout(() => {
                         if (session.dgSocket?.readyState === 1) {
@@ -1946,13 +1919,15 @@ function setupAudioProcessingForParticipant(participant, session) {
                         }
                     }, 200); // A 100ms delay is usually sufficient
                 }
-    
+
+
+
                 // Handle audio chunks
                 if (parsedVAD.chunk) {
                     console.log(`Session ${session.id}: Got speech chunk (${parsedVAD.chunk.length / 2} chars)`);
                     const audioBuffer = Buffer.from(parsedVAD.chunk, 'hex');
                     session.vadDeepgramBuffer = Buffer.concat([session.vadDeepgramBuffer, audioBuffer]);
-                    
+
                     // Send chunks to Deepgram if speech is active
                     if (session.isVadSpeechActive && session.dgSocket?.readyState === 1) {
                         while (session.vadDeepgramBuffer.length >= CONFIG.DEEPGRAM_STREAM_CHUNK_SIZE) {
@@ -1970,7 +1945,7 @@ function setupAudioProcessingForParticipant(participant, session) {
             }
         }
     });
-    
+
     session.vadProcess.stderr.on('data', (data) => {
         // These are just log messages, not errors
         const message = data.toString().trim();
@@ -2689,8 +2664,12 @@ wss.on('connection', (ws, req) => {
                             }
                             // Important: Send Deepgram a "Finalize" message when VAD detects speech end
                             if (session.dgSocket?.readyState === WebSocket.OPEN) {
-                                console.log(`Session ${session.id}: Sending Deepgram Finalize message.`);
-                                session.dgSocket.send(JSON.stringify({ "type": "Finalize" }));
+                                setTimeout(() => {
+                                    if (!session.isVadSpeechActive) {
+                                        console.log(`Session ${session.id}: Sending Deepgram Finalize message.`);
+                                        session.dgSocket.send(JSON.stringify({ "type": "Finalize" }));
+                                    }
+                                }, 200)
                             }
                         }
 
