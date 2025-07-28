@@ -15,6 +15,7 @@ const { Transform } = require('stream');
 const WebSocket = require('ws');
 const { createClient, LiveTTSEvents } = require('@deepgram/sdk');
 const deepgramTts = createClient(process.env.DEEPGRAM_API);
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // LiveKit imports
 const { RoomServiceClient, AccessToken } = require('livekit-server-sdk');
@@ -50,29 +51,31 @@ const roomService = new RoomServiceClient(LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_
 
 const toolDefinitions = [
     {
-        type: "function",
-        name: "getAllProducts",
-        description: "Get a list of all products in the store.",
-        parameters: {
-            type: "object",
-            properties: {},
-            required: []
+        "name": "getAllProducts",
+        "description": "Get all available products from the catalog",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": []
         }
     },
     {
-        type: "function",
-        name: "getUserDetailsByPhoneNo",
-        description: "Get customer details",
-        parameters: {
-            type: "object",
-            properties: {},
-            required: []
+        "name": "getUserDetailsByPhoneNo",
+        "description": "Get user details by phone number",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "phoneNo": {
+                    "type": "string",
+                    "description": "User's phone number"
+                }
+            },
+            "required": ["phoneNo"]
         }
     },
     {
-        type: "function",
         name: "getAllOrders",
-        description: "Get a list of all orders.",
+        description: "Get all orders from the system",
         parameters: {
             type: "object",
             properties: {},
@@ -80,18 +83,22 @@ const toolDefinitions = [
         }
     },
     {
-        type: "function",
         name: "getOrderById",
-        description: "Get details for a specific order by its ID.",
+        description: "Get order details by order ID",
         parameters: {
             type: "object",
             properties: {
-                orderId: { type: "string", description: "The Shopify order ID." }
+                orderId: {
+                    type: "string",
+                    description: "The unique order identifier"
+                }
             },
             required: ["orderId"]
         }
     }
 ];
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_AI);
 
 // Service Initialization
 const services = {
@@ -103,7 +110,21 @@ const services = {
             secretAccessKey: process.env.secretAccessKey,
         },
     }),
-    openai: new OpenAI({ apiKey: process.env.OPEN_AI })
+    openai: new OpenAI({ apiKey: process.env.OPEN_AI }),
+    gemini: genAI.getGenerativeModel({
+        model: "gemini-2.0-flash-lite",  // or "gemini-2.0-flash-thinking-exp"
+        // Optional: Add safety settings
+        safetySettings: [
+            {
+                category: "HARM_CATEGORY_HARASSMENT",
+                threshold: "BLOCK_MEDIUM_AND_ABOVE"
+            },
+            {
+                category: "HARM_CATEGORY_HATE_SPEECH",
+                threshold: "BLOCK_MEDIUM_AND_ABOVE"
+            }
+        ]
+    })
     // openai: new OpenAI({ apiKey: 'sk-abcdef1234567890abcdef1234567890abcdef12' })
 };
 
@@ -1185,7 +1206,7 @@ const audioUtils = {
 
 // AI Processing
 const aiProcessing = {
-    // async processInput(input, session) {
+    // async processInputVIARESPONSE_API(input, session) {
     //     // console.log("here are the sessions details :", session.prompt, session.tools)
 
     //     const createResponseParams = {
@@ -1253,108 +1274,248 @@ const aiProcessing = {
     //         };
     //     }
     // },
+    // async processInputVIA_CHAT_COMPLITION_API(input, session) {
+    //     // Initialize conversation history if not exists
+    //     if (!session.messages) {
+    //         session.messages = [
+    //             {
+    //                 role: "system",
+    //                 content: session.prompt
+    //             }
+    //         ];
+    //     }
+
+    //     // Add user message to conversation
+    //     session.messages.push({
+    //         role: "user",
+    //         content: input.message
+    //     });
+    //     console.log("session.messages", session.messages);
+
+    //     const createChatParams = {
+    //         model: "gpt-4o-mini",
+    //         messages: session.messages,
+    //         tools: session.tools,
+    //         tool_choice: "auto", // Let the model decide when to use tools
+    //         max_tokens: CONFIG.GPT_MAX_TOKENS
+    //     };
+
+    //     let processTimeStart = Date.now();
+    //     let response = await services.openai.chat.completions.create(createChatParams);
+    //     let processTime = Date.now() - processTimeStart;
+    //     console.log("LLmProcessTime", processTime);
+
+    //     const assistantMessage = response.choices[0].message;
+
+    //     // Add assistant's response to conversation history
+    //     session.messages.push(assistantMessage);
+
+    //     // Check if the assistant wants to call a function
+    //     if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
+    //         // Process each tool call
+    //         for (const toolCall of assistantMessage.tool_calls) {
+    //             let toolResult;
+    //             const args = JSON.parse(toolCall.function.arguments);
+
+    //             if (toolCall.function.name === "getAllProducts") {
+    //                 toolResult = await functions.getAllProducts();
+    //             } else if (toolCall.function.name === "getUserDetailsByPhoneNo") {
+    //                 toolResult = await functions.getUserDetailsByPhoneNo(session.caller);
+    //             } else if (toolCall.function.name === "getAllOrders") {
+    //                 toolResult = await functions.getAllOrders();
+    //             } else if (toolCall.function.name === "getOrderById") {
+    //                 toolResult = await functions.getOrderById(args.orderId);
+    //             } else {
+    //                 toolResult = { error: "Unknown tool requested." };
+    //             }
+
+    //             // Add tool result to conversation
+    //             session.messages.push({
+    //                 role: "tool",
+    //                 tool_call_id: toolCall.id,
+    //                 content: JSON.stringify(toolResult)
+    //             });
+    //         }
+
+    //         // Get final response after tool execution
+    //         response = await services.openai.chat.completions.create({
+    //             model: "gpt-4o-mini",
+    //             messages: session.messages,
+    //             tools: session.tools,
+    //             tool_choice: "auto",
+    //             max_tokens: CONFIG.GPT_MAX_TOKENS
+    //         });
+
+    //         const finalAssistantMessage = response.choices[0].message;
+    //         session.messages.push(finalAssistantMessage);
+
+    //         // Parse and return the final response
+    //         let parsedData;
+    //         try {
+    //             parsedData = JSON.parse(finalAssistantMessage.content);
+    //             return {
+    //                 processedText: parsedData.response,
+    //                 outputType: parsedData.output_channel
+    //             };
+    //         } catch (error) {
+    //             return {
+    //                 processedText: finalAssistantMessage.content || "Sorry, I had trouble understanding. Could you please rephrase?",
+    //                 outputType: input.input_channel
+    //             };
+    //         }
+    //     }
+
+    //     // No tool calls - return direct response
+    //     let parsedData;
+    //     try {
+    //         parsedData = JSON.parse(assistantMessage.content);
+    //         return {
+    //             processedText: parsedData.response,
+    //             outputType: parsedData.output_channel
+    //         };
+    //     } catch (error) {
+    //         return {
+    //             processedText: assistantMessage.content || "Sorry, I had trouble understanding. Could you please rephrase?",
+    //             outputType: input.input_channel
+    //         };
+    //     }
+    // },
+
     async processInput(input, session) {
         // Initialize conversation history if not exists
         if (!session.messages) {
-            session.messages = [
-                {
-                    role: "system",
-                    content: session.prompt
-                }
-            ];
+            session.messages = [];
         }
 
         // Add user message to conversation
         session.messages.push({
             role: "user",
-            content: input.message
+            parts: [{ text: input.message }]
         });
         console.log("session.messages", session.messages);
 
-        const createChatParams = {
-            model: "gpt-4o-mini",
-            messages: session.messages,
-            tools: session.tools,
-            tool_choice: "auto", // Let the model decide when to use tools
-            max_tokens: CONFIG.GPT_MAX_TOKENS
+        // Build the request for Gemini
+        const geminiRequest = {
+            contents: session.messages,
+            tools: toolDefinitions ? [{ functionDeclarations: toolDefinitions }] : undefined,
+            // tools: toolDefinitions,
+            generationConfig: {
+                maxOutputTokens: CONFIG.GPT_MAX_TOKENS || 150,
+                temperature: 0.2
+            },
+            systemInstruction: session.prompt ? {
+                parts: [{ text: session.prompt }]
+            } : undefined
         };
 
         let processTimeStart = Date.now();
-        let response = await services.openai.chat.completions.create(createChatParams);
+        let response = await services.gemini.generateContent(geminiRequest);
         let processTime = Date.now() - processTimeStart;
         console.log("LLmProcessTime", processTime);
 
-        const assistantMessage = response.choices[0].message;
+        const candidate = response.response.candidates[0];
+        const assistantContent = candidate.content;
 
         // Add assistant's response to conversation history
-        session.messages.push(assistantMessage);
+        session.messages.push({
+            role: "model",
+            parts: assistantContent.parts
+        });
 
         // Check if the assistant wants to call a function
-        if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
-            // Process each tool call
-            for (const toolCall of assistantMessage.tool_calls) {
-                let toolResult;
-                const args = JSON.parse(toolCall.function.arguments);
+        const functionCalls = assistantContent.parts.filter(part => part.functionCall);
 
-                if (toolCall.function.name === "getAllProducts") {
+        if (functionCalls.length > 0) {
+            // Process each function call
+            const functionResponses = [];
+
+            for (const part of functionCalls) {
+                let toolResult;
+                const functionCall = part.functionCall;
+                const args = functionCall.args || {};
+
+                if (functionCall.name === "getAllProducts") {
                     toolResult = await functions.getAllProducts();
-                } else if (toolCall.function.name === "getUserDetailsByPhoneNo") {
+                } else if (functionCall.name === "getUserDetailsByPhoneNo") {
                     toolResult = await functions.getUserDetailsByPhoneNo(session.caller);
-                } else if (toolCall.function.name === "getAllOrders") {
+                } else if (functionCall.name === "getAllOrders") {
                     toolResult = await functions.getAllOrders();
-                } else if (toolCall.function.name === "getOrderById") {
+                } else if (functionCall.name === "getOrderById") {
                     toolResult = await functions.getOrderById(args.orderId);
                 } else {
-                    toolResult = { error: "Unknown tool requested." };
+                    toolResult = { error: "Unknown function requested." };
                 }
 
-                // Add tool result to conversation
-                session.messages.push({
-                    role: "tool",
-                    tool_call_id: toolCall.id,
-                    content: JSON.stringify(toolResult)
+                // Add function response
+                functionResponses.push({
+                    functionResponse: {
+                        name: functionCall.name,
+                        response: toolResult
+                    }
                 });
             }
 
-            // Get final response after tool execution
-            response = await services.openai.chat.completions.create({
-                model: "gpt-4o-mini",
-                messages: session.messages,
-                tools: session.tools,
-                tool_choice: "auto",
-                max_tokens: CONFIG.GPT_MAX_TOKENS
+            // Add function responses to conversation
+            session.messages.push({
+                role: "user",
+                parts: functionResponses
             });
 
-            const finalAssistantMessage = response.choices[0].message;
-            session.messages.push(finalAssistantMessage);
+            // Get final response after function execution
+            const finalRequest = {
+                contents: session.messages,
+                tools: toolDefinitions ? [{ functionDeclarations: toolDefinitions }] : undefined,
+                generationConfig: {
+                    maxOutputTokens: CONFIG.GPT_MAX_TOKENS || 2048,
+                    temperature: 0.7
+                },
+                systemInstruction: session.prompt ? {
+                    parts: [{ text: session.prompt }]
+                } : undefined
+            };
+
+            response = await services.gemini.generateContent(finalRequest);
+            const finalCandidate = response.response.candidates[0];
+            const finalAssistantContent = finalCandidate.content;
+
+            session.messages.push({
+                role: "model",
+                parts: finalAssistantContent.parts
+            });
 
             // Parse and return the final response
+            const textPart = finalAssistantContent.parts.find(part => part.text);
+            const responseText = textPart ? textPart.text : "";
+
             let parsedData;
             try {
-                parsedData = JSON.parse(finalAssistantMessage.content);
+                parsedData = JSON.parse(responseText);
                 return {
                     processedText: parsedData.response,
                     outputType: parsedData.output_channel
                 };
             } catch (error) {
                 return {
-                    processedText: finalAssistantMessage.content || "Sorry, I had trouble understanding. Could you please rephrase?",
+                    processedText: responseText || "Sorry, I had trouble understanding. Could you please rephrase?",
                     outputType: input.input_channel
                 };
             }
         }
 
-        // No tool calls - return direct response
+        // No function calls - return direct response
+        const textPart = assistantContent.parts.find(part => part.text);
+        const responseText = textPart ? textPart.text : "";
+
         let parsedData;
         try {
-            parsedData = JSON.parse(assistantMessage.content);
+            parsedData = JSON.parse(responseText);
             return {
                 processedText: parsedData.response,
                 outputType: parsedData.output_channel
             };
         } catch (error) {
             return {
-                processedText: assistantMessage.content || "Sorry, I had trouble understanding. Could you please rephrase?",
+                processedText: responseText || "Sorry, I had trouble understanding. Could you please rephrase?",
                 outputType: input.input_channel
             };
         }
