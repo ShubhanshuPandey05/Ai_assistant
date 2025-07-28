@@ -1275,8 +1275,7 @@ const aiProcessing = {
             messages: session.messages,
             tools: session.tools,
             tool_choice: "auto", // Let the model decide when to use tools
-            max_tokens: CONFIG.GPT_MAX_TOKENS,
-            temperature: CONFIG.GPT_TEMPERATURE
+            max_tokens: CONFIG.GPT_MAX_TOKENS
         };
 
         let processTimeStart = Date.now();
@@ -1322,8 +1321,7 @@ const aiProcessing = {
                 messages: session.messages,
                 tools: session.tools,
                 tool_choice: "auto",
-                max_tokens: CONFIG.GPT_MAX_TOKENS,
-                temperature: CONFIG.GPT_TEMPERATURE
+                max_tokens: CONFIG.GPT_MAX_TOKENS
             });
 
             const finalAssistantMessage = response.choices[0].message;
