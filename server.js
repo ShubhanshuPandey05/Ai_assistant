@@ -365,7 +365,7 @@ const CONFIG = {
     POLLY_VOICE_ID: "Joanna",
     POLLY_OUTPUT_FORMAT: "mp3",
     GPT_MODEL: "gpt-4o-mini",
-    GPT_MAX_TOKENS: 100,
+    GPT_MAX_TOKENS: 250,
     GPT_TEMPERATURE: 0.1,
     DENOISER_RATE: 48000,
 };
@@ -1396,10 +1396,10 @@ const aiProcessing = {
         // Build the request for Gemini
         const geminiRequest = {
             contents: session.messages,
-            tools: session.tools ? [{ functionDeclarations: session.tools }] : undefined,
+            tools: session.tools.length > 0 ? [{ functionDeclarations: session.tools }] : undefined,
             // tools: toolDefinitions,
             generationConfig: {
-                maxOutputTokens: CONFIG.GPT_MAX_TOKENS || 150,
+                maxOutputTokens: CONFIG.GPT_MAX_TOKENS || 250,
                 temperature: 0.2
             },
             systemInstruction: session.prompt ? {

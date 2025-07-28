@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Settings, Check, Phone, PhoneCall } from 'lucide-react';
-// const SERVER_URL = 'http://localhost:5001';
-const SERVER_URL = 'https://call-server.shipfast.studio/livekit';
+const SERVER_URL = 'http://localhost:5001';
+// const SERVER_URL = 'https://call-server.shipfast.studio/livekit';
 
 
 const Chat = () => {
