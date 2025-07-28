@@ -708,7 +708,7 @@ class SessionManager {
                 // If the user asks a general question or your response does not require real-time store data, answer directly.
                 // ***Always use the user's input_channel for your response if it matches the available ***
                 // The store name is "Gautam Garment"—refer to it by name in your responses when appropriate.`,
-                prompt: prompt,
+                prompt: prompt || "You are ai assistant.",
                 metrics: { llm: 0, stt: 0, tts: 0 },
 
                 ffmpegProcess: null,
@@ -761,7 +761,7 @@ class SessionManager {
                 content: "Hello! You are speaking to an AI assistant."
             }],
             //             prompt: `You are a helpful AI assistant for the Shopify store "Gautam Garment". You have access to several tools (functions) that let you fetch and provide real-time information about products, orders, and customers from the store.
-            prompt: prompt,
+            prompt: prompt || "You are ai assistant.",
             metrics: { llm: 0, stt: 0, tts: 0 },
 
             ffmpegProcess: null,
@@ -773,7 +773,8 @@ class SessionManager {
             isTalking: false,
             tools: tool,
             denoiser: null,
-            remainder: null
+            remainder: null,
+            message: []
         };
         this.sessions.set(id, session);
         console.log(`Session ${roomName}: Created new session.`);
@@ -1391,7 +1392,7 @@ const aiProcessing = {
             role: "user",
             parts: [{ text: input.message }]
         });
-        console.log("session.messages", session.messages);
+        // console.log("session.messages", session.messages);
 
         // Build the request for Gemini
         const geminiRequest = {
