@@ -2725,7 +2725,7 @@ wss.on('connection', (ws, req) => {
             if (parsedData.event === 'start') {
                 // console.log('start',parsedData);
                 let userData = parsedData.start?.customParameters?.caller || parsedData.userData;
-                session = sessionManager.createSession(ws, userData); // Pass ws to session manager
+                session = sessionManager.createSession(ws, userData, parsedData.prompt); // Pass ws to session manager
                 sessionId = session.id;
                 session.callSid = parsedData.start?.callSid;
                 session.streamSid = parsedData?.streamSid; // Confirm streamSid in session

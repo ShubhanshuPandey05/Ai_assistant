@@ -118,7 +118,8 @@ const Chat = () => {
         wsRef.current.send(JSON.stringify({
           type: 'start_session',
           event: 'start',
-          userData: selectedPhone
+          userData: selectedPhone,
+          prompt: editingPrompt
         }));
       };
 
