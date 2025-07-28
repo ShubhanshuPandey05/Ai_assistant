@@ -344,7 +344,7 @@ const CONFIG = {
     POLLY_VOICE_ID: "Joanna",
     POLLY_OUTPUT_FORMAT: "mp3",
     GPT_MODEL: "gpt-4o-mini",
-    GPT_MAX_TOKENS: 150,
+    GPT_MAX_TOKENS: 100,
     GPT_TEMPERATURE: 0.1,
     DENOISER_RATE: 48000,
 };
@@ -903,6 +903,9 @@ const audioUtils = {
         const pcm = mulawBuffer;
         const CHUNK_SIZE_MULAW = 800;
         let offset = 0;
+        session.isAIResponding = false;
+        session.interruption = true;
+        handleInterruption(session);
         session.isAIResponding = true;
         session.interruption = false;
 
@@ -1272,7 +1275,8 @@ const aiProcessing = {
             messages: session.messages,
             tools: session.tools,
             tool_choice: "auto", // Let the model decide when to use tools
-            max_tokens: CONFIG.GPT_MAX_TOKENS
+            max_tokens: CONFIG.GPT_MAX_TOKENS,
+            temperature: CONFIG.GPT_TEMPERATURE
         };
 
         let processTimeStart = Date.now();
@@ -1318,7 +1322,8 @@ const aiProcessing = {
                 messages: session.messages,
                 tools: session.tools,
                 tool_choice: "auto",
-                max_tokens: CONFIG.GPT_MAX_TOKENS
+                max_tokens: CONFIG.GPT_MAX_TOKENS,
+                temperature: CONFIG.GPT_TEMPERATURE
             });
 
             const finalAssistantMessage = response.choices[0].message;
