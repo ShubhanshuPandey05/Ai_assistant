@@ -1269,6 +1269,7 @@ const aiProcessing = {
             role: "user",
             content: input.message
         });
+        console.log("session.messages", session.messages);
 
         const createChatParams = {
             model: "gpt-4o-mini",
