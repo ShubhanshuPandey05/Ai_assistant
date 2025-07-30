@@ -2882,7 +2882,7 @@ wss.on('connection', (ws, req) => {
                         console.error('No session ID available for chat message. Ignoring.');
                         return;
                     }
-                    if (!session.availableChannel.includes("chat")) {
+                    if(!session.availableChannel.find(con => con.channel == 'chat')){
                         setChannel(ws, session, "chat")
                     }
                     // console.log(session.availableChannel)
@@ -2911,7 +2911,9 @@ wss.on('connection', (ws, req) => {
                 }
                 else if (session && session.ffmpegProcess && session.ffmpegProcess.stdin.writable) {
                     // console.log("event called")
-                    setChannel(ws, session, "audio")
+                    if(!session.availableChannel.find(con => con.channel == 'audio')){
+                        setChannel(ws, session, "audio")
+                    }
                     const audioBuffer = Buffer.from(parsedData.media.payload, 'base64');
                     // console.log(`Session ${session.id}: Writing ${audioBuffer.length} bytes to FFmpeg`);
                     session.ffmpegProcess.stdin.write(audioBuffer); // Write to this session's ffmpeg
