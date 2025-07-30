@@ -112,7 +112,7 @@ const services = {
     }),
     openai: new OpenAI({ apiKey: process.env.OPEN_AI }),
     gemini: genAI.getGenerativeModel({
-        model: "gemini-2.0-flash-lite",  // or "gemini-2.0-flash-thinking-exp"
+        model: "gemini-2.0-flash",  // or "gemini-2.0-flash-thinking-exp"
         // Optional: Add safety settings
         safetySettings: [
             {
@@ -1456,7 +1456,7 @@ const aiProcessing = {
                 functionResponses.push({
                     functionResponse: {
                         name: functionCall.name,
-                        response: {toolResult}
+                        response: { toolResult }
                     }
                 });
             }
@@ -1479,7 +1479,7 @@ const aiProcessing = {
                     parts: [{ text: session.prompt }]
                 } : undefined
             };
-            let ll= Date.now()
+            let ll = Date.now()
             response = await services.gemini.generateContent(finalRequest);
             console.log("Response time two", Date.now() - ll)
             const finalCandidate = response.response.candidates[0];
@@ -1796,15 +1796,33 @@ const aiProcessing = {
 
 };
 
-const setChannel = (session, channel) => {
-    if (!session.availableChannel.includes(channel)) {
-        session.availableChannel.push(channel);
+const setChannel = (connection, session, channel) => {
+    // Check if the channel already exists in the availableChannel array
+    console.log(channel)
+    if (!session.availableChannel.some(c => c.channel === channel)) {
+        session.availableChannel.push({
+            channel: channel,
+            connection: connection
+        });
         let prompt = `${session.prompt}
-        Available channels:
-        ${session.availableChannel.join(",")}
-        `
-        session.prompt = prompt
+Available channels:
+${session.availableChannel.map(c => c.channel).join(",")}
+`;
+        session.prompt = prompt;
+    }else{
+        // console.log("con",session.availableChannel.find(con => con.channel == channel).channel)
+        session.availableChannel.forEach((c)=>{
+            if(c.channel === channel){
+                c.connection = connection
+            }
+        })
+        let prompt = `${session.prompt}
+Available channels:
+${session.availableChannel.map(c => c.channel).join(",")}
+`;
+        session.prompt = prompt;
     }
+
 }
 
 const changePrompt = (session, prompt, tools) => {
@@ -1866,6 +1884,7 @@ app.post('/create-room', async (req, res) => {
 
         // 3. Create session for this room
         const session = sessionManager.createSession(room, userData, prompt, tool);
+        setChannel(room, session, "audio")
 
         // 4. Set up room event handlers
         setupRoomEventHandlers(room, session);
@@ -1918,7 +1937,7 @@ function setupRoomEventHandlers(room, session) {
 
     room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
         handleTrackSubscribed(track, publication, participant, session);
-        setChannel(session, "audio")
+        setChannel(room, session, "audio")
     });
 
     room.on(RoomEvent.ChatMessage, (message, participant) => {
@@ -2298,7 +2317,7 @@ async function handleTurnCompletion(session) {
             console.log("convertTime", convertTime)
             if (mulawBuffer) {
                 session.interruption = false;
-                audioUtils.streamMulawAudioToLiveKit(session.room, mulawBuffer, session);
+                audioUtils.streamMulawAudioToLiveKit(session.availableChannel.find(con => con.channel == 'audio').connection, mulawBuffer, session);
             } else {
                 throw new Error("Failed to convert audio to mulaw.");
             }
@@ -2536,13 +2555,14 @@ wss.on('connection', (ws, req) => {
                 const mulawBuffer = await audioUtils.convertMp3ToMulaw(audioBuffer, session.id);
                 if (mulawBuffer) {
                     session.interruption = false;
-                    audioUtils.streamMulawAudioToTwilio(ws, session.streamSid, mulawBuffer, session);
+                    audioUtils.streamMulawAudioToTwilio(session.availableChannel.find(con => con.channel == 'audio').connection, session.streamSid, mulawBuffer, session);
                 } else {
                     throw new Error("Failed to convert audio to mulaw.");
                 }
             } else {
                 // Handle text output
-                ws.send(JSON.stringify({
+                
+                session.availableChannel.find(con => con.channel == 'chat').connection.send(JSON.stringify({
                     event: 'media',
                     type: 'text_response',
                     media: { payload: processedText },
@@ -2922,10 +2942,9 @@ wss.on('connection', (ws, req) => {
                         return;
                     }
                     if (!session.availableChannel.includes("chat")) {
-                        setChannel(session, "chat")
-
+                        setChannel(ws, session, "chat")
                     }
-                    console.log(session.availableChannel)
+                    // console.log(session.availableChannel)
                     console.log("chat recieved")
                     const { processedText, outputType } = await aiProcessing.processInput(
                         { message: parsedData.media.payload, input_channel: 'chat' },
@@ -2953,7 +2972,7 @@ wss.on('connection', (ws, req) => {
                 else if (session && session.ffmpegProcess && session.ffmpegProcess.stdin.writable) {
                     // console.log("event called")
                     if (!session.availableChannel.includes("audio")) {
-                        setChannel(session, "audio")
+                        setChannel(ws, session, "audio")
                     }
                     const audioBuffer = Buffer.from(parsedData.media.payload, 'base64');
                     // console.log(`Session ${session.id}: Writing ${audioBuffer.length} bytes to FFmpeg`);
