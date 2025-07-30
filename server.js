@@ -2553,6 +2553,7 @@ wss.on('connection', (ws, req) => {
                 if (!audioBuffer) throw new Error("Failed to synthesize speech.");
 
                 session.interruption = false;
+                console.log(session.availableChannel.find(con => con.channel == 'audio').connection)
                 audioUtils.universalStreamAudio(session.availableChannel.find(con => con.channel == 'audio').connection, audioBuffer, session);
 
             } else {
