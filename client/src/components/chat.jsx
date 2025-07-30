@@ -112,8 +112,8 @@ const Chat = () => {
       setError(null);
 
       // Connect to WebSocket
-      // wsRef.current = new WebSocket('ws://localhost:5002');
-      wsRef.current = new WebSocket('wss://call-server.shipfast.studio/websocket/');
+      wsRef.current = new WebSocket('ws://localhost:5002');
+      // wsRef.current = new WebSocket('wss://call-server.shipfast.studio/websocket/');
 
       wsRef.current.onopen = () => {
         console.log('WebSocket connected, starting session...');

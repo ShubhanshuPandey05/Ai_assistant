@@ -157,33 +157,39 @@ const functions = {
     }
   `;
 
-        const response = await fetch(graphqlEndpoint, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
-            },
-            body: JSON.stringify({ query }),
-        });
+        try {
+            const response = await fetch(graphqlEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
+                },
+                body: JSON.stringify({ query }),
+            });
+            const data = await response.json();
+            if (!data.data || !data.data.products) return { products: [], hasNextPage: false, lastCursor: null };
 
-        const data = await response.json();
-        if (!data.data || !data.data.products) return { products: [], hasNextPage: false, lastCursor: null };
+            const products = data.data.products.edges.map(edge => ({
+                id: edge.node.id,
+                title: edge.node.title,
+                handle: edge.node.handle,
+                description: edge.node.description,
+                variants: edge.node.variants.edges.map(variantEdge => ({
+                    id: variantEdge.node.id,
+                    title: variantEdge.node.title
+                }))
+            }));
 
-        const products = data.data.products.edges.map(edge => ({
-            id: edge.node.id,
-            title: edge.node.title,
-            handle: edge.node.handle,
-            description: edge.node.description,
-            variants: edge.node.variants.edges.map(variantEdge => ({
-                id: variantEdge.node.id,
-                title: variantEdge.node.title
-            }))
-        }));
+            const hasNextPage = data.data.products.pageInfo.hasNextPage;
+            const lastCursor = data.data.products.edges.length > 0 ? data.data.products.edges[data.data.products.edges.length - 1].cursor : null;
 
-        const hasNextPage = data.data.products.pageInfo.hasNextPage;
-        const lastCursor = data.data.products.edges.length > 0 ? data.data.products.edges[data.data.products.edges.length - 1].cursor : null;
+            // console.log(products)
 
-        return products;
+            return products;
+        } catch (error) {
+            console.log(error)
+            return "Currently i am having the issue in the fetching the product due to sphoify url issue."
+        }
     },
 
     async getUserDetailsByPhoneNo(phone) {
@@ -794,23 +800,23 @@ class SessionManager {
         }
     }
 
-    cleanupSession(roomName) {
-        const session = this.sessions.get(roomName);
+    cleanupSession(session) {
+        // const session = this.sessions.get(roomName);
         if (session) {
             if (session.dgSocket?.readyState === 1) { // WebSocket.OPEN
                 session.dgSocket.close();
-                console.log(`Session ${roomName}: Closed Deepgram socket.`);
+                console.log(`Session ${session.id}: Closed Deepgram socket.`);
             }
 
             if (session.ffmpegProcess) {
                 session.ffmpegProcess.stdin.end();
                 session.ffmpegProcess.kill('SIGINT');
-                console.log(`Session ${roomName}: Terminated ffmpeg process.`);
+                console.log(`Session ${session.id}: Terminated ffmpeg process.`);
             }
             if (session.vadProcess) {
                 session.vadProcess.stdin.end();
                 session.vadProcess.kill('SIGINT');
-                console.log(`Session ${roomName}: Terminated VAD process.`);
+                console.log(`Session ${session.id}: Terminated VAD process.`);
             }
 
             if (session.currentAudioStream && typeof session.currentAudioStream.stop === 'function') {
@@ -1450,7 +1456,7 @@ const aiProcessing = {
                 functionResponses.push({
                     functionResponse: {
                         name: functionCall.name,
-                        response: toolResult
+                        response: {toolResult}
                     }
                 });
             }
@@ -1473,8 +1479,9 @@ const aiProcessing = {
                     parts: [{ text: session.prompt }]
                 } : undefined
             };
-
+            let ll= Date.now()
             response = await services.gemini.generateContent(finalRequest);
+            console.log("Response time two", Date.now() - ll)
             const finalCandidate = response.response.candidates[0];
             const finalAssistantContent = finalCandidate.content;
 
@@ -1897,13 +1904,16 @@ function setupRoomEventHandlers(room, session) {
         setupAudioProcessingForParticipant(participant, session);
     });
 
-    room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+    room.on(RoomEvent.ParticipantDisconnected, async (participant) => {
         console.log(`Session ${session.id}: Participant disconnected: ${participant.identity} `);
+        sessionManager.cleanupSession(session)
+        await room.disconnect();
+        console.log("room disconnected")
     });
 
     room.on(RoomEvent.Disconnected, () => {
         console.log(`Session ${session.id}: Room disconnected`);
-        sessionManager.deleteSession(session.id);
+        // sessionManager.deleteSession(session.id);
     });
 
     room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
@@ -1996,7 +2006,11 @@ async function handleTrackSubscribed(track, publication, participant, session) {
 
             if (sampleBuffer.length >= BATCH_SAMPLES) {
                 const buf = Buffer.from(new Int16Array(sampleBuffer).buffer);
-                session.ffmpegProcess.stdin.write(buf);
+                try {
+                    session.ffmpegProcess.stdin.write(buf);
+                } catch (error) {
+                    console.log("Error in writting the buffer.")
+                }
                 // console.log(`📤 Sent ${sampleBuffer.length} samples to FFmpeg`);
                 sampleBuffer = [];
             }
