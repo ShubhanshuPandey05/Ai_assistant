@@ -1798,7 +1798,7 @@ const aiProcessing = {
 
 const setChannel = (connection, session, channel) => {
     // Check if the channel already exists in the availableChannel array
-    console.log(channel)
+    // console.log(channel)
     if (!session.availableChannel.some(c => c.channel === channel)) {
         session.availableChannel.push({
             channel: channel,
@@ -1809,10 +1809,10 @@ Available channels:
 ${session.availableChannel.map(c => c.channel).join(",")}
 `;
         session.prompt = prompt;
-    }else{
+    } else {
         // console.log("con",session.availableChannel.find(con => con.channel == channel).channel)
-        session.availableChannel.forEach((c)=>{
-            if(c.channel === channel){
+        session.availableChannel.forEach((c) => {
+            if (c.channel === channel) {
                 c.connection = connection
             }
         })
@@ -2561,7 +2561,7 @@ wss.on('connection', (ws, req) => {
                 }
             } else {
                 // Handle text output
-                
+
                 session.availableChannel.find(con => con.channel == 'chat').connection.send(JSON.stringify({
                     event: 'media',
                     type: 'text_response',
@@ -2971,9 +2971,7 @@ wss.on('connection', (ws, req) => {
                 }
                 else if (session && session.ffmpegProcess && session.ffmpegProcess.stdin.writable) {
                     // console.log("event called")
-                    if (!session.availableChannel.includes("audio")) {
-                        setChannel(ws, session, "audio")
-                    }
+                    setChannel(ws, session, "audio")
                     const audioBuffer = Buffer.from(parsedData.media.payload, 'base64');
                     // console.log(`Session ${session.id}: Writing ${audioBuffer.length} bytes to FFmpeg`);
                     session.ffmpegProcess.stdin.write(audioBuffer); // Write to this session's ffmpeg
