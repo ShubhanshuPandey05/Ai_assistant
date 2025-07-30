@@ -1419,7 +1419,6 @@ const aiProcessing = {
             tools: session.tools.length > 0 ? [{ functionDeclarations: session.tools }] : undefined,
             // tools: toolDefinitions,
             generationConfig: {
-                maxOutputTokens: CONFIG.GPT_MAX_TOKENS || 250,
                 temperature: 0.2
             },
             systemInstruction: session.prompt ? {
@@ -1485,7 +1484,7 @@ const aiProcessing = {
                 contents: session.messages,
                 tools: toolDefinitions ? [{ functionDeclarations: toolDefinitions }] : undefined,
                 generationConfig: {
-                    maxOutputTokens: CONFIG.GPT_MAX_TOKENS || 2048,
+                    // maxOutputTokens: CONFIG.GPT_MAX_TOKENS || 2048,
                     temperature: 0.7
                 },
                 systemInstruction: session.prompt ? {
@@ -2931,9 +2930,9 @@ wss.on('connection', (ws, req) => {
 
     ws.on('close', () => {
         console.log(`Session ${sessionId}: Twilio client disconnected.`);
-        if (sessionId) {
-            sessionManager.cleanupSession(session);
-        }
+        // if (sessionId) {
+        //     sessionManager.cleanupSession(session);
+        // }
         clearInterval(deepgramKeepAliveInterval); // Clear keep-alive for this WS
     });
 
