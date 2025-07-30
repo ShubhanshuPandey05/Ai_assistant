@@ -1419,7 +1419,7 @@ const aiProcessing = {
             tools: session.tools.length > 0 ? [{ functionDeclarations: session.tools }] : undefined,
             // tools: toolDefinitions,
             generationConfig: {
-                temperature: 0.5
+                temperature: 0.2
             },
             systemInstruction: session.prompt ? {
                 parts: [{ text: session.prompt }]
@@ -2553,7 +2553,7 @@ wss.on('connection', (ws, req) => {
                 if (!audioBuffer) throw new Error("Failed to synthesize speech.");
 
                 session.interruption = false;
-                console.log(session.availableChannel.find(con => con.channel == 'audio').connection)
+                // console.log(session.availableChannel.find(con => con.channel == 'audio').connection)
                 audioUtils.universalStreamAudio(session.availableChannel.find(con => con.channel == 'audio').connection, audioBuffer, session);
 
             } else {
@@ -2883,7 +2883,7 @@ wss.on('connection', (ws, req) => {
                         return;
                     }
                     if (!session.availableChannel.find(con => con.channel == 'chat')) {
-                        console.log("setting the channel to the caht")
+                        console.log("setting the channel to the chat")
 
                         setChannel(ws, session, "chat")
                     }
