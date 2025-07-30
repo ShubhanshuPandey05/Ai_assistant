@@ -2883,6 +2883,8 @@ wss.on('connection', (ws, req) => {
                         return;
                     }
                     if (!session.availableChannel.find(con => con.channel == 'chat')) {
+                        console.log("setting the channel to the caht")
+
                         setChannel(ws, session, "chat")
                     }
                     // console.log(session.availableChannel)
@@ -2912,6 +2914,7 @@ wss.on('connection', (ws, req) => {
                 else if (session && session.ffmpegProcess && session.ffmpegProcess.stdin.writable) {
                     // console.log("event called")
                     if (!session.availableChannel.find(con => con.channel == 'audio')) {
+                        console.log("setting the channel to the audio")
                         setChannel(ws, session, "audio")
                     }
                     const audioBuffer = Buffer.from(parsedData.media.payload, 'base64');
