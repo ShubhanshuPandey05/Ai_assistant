@@ -1419,7 +1419,7 @@ const aiProcessing = {
             tools: session.tools.length > 0 ? [{ functionDeclarations: session.tools }] : undefined,
             // tools: toolDefinitions,
             generationConfig: {
-                temperature: 0.2
+                temperature: 0.5
             },
             systemInstruction: session.prompt ? {
                 parts: [{ text: session.prompt }]
@@ -1485,7 +1485,7 @@ const aiProcessing = {
                 tools: toolDefinitions ? [{ functionDeclarations: toolDefinitions }] : undefined,
                 generationConfig: {
                     // maxOutputTokens: CONFIG.GPT_MAX_TOKENS || 2048,
-                    temperature: 0.7
+                    temperature: 0.5
                 },
                 systemInstruction: session.prompt ? {
                     parts: [{ text: session.prompt }]
