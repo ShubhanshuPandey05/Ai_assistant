@@ -1214,10 +1214,12 @@ const audioUtils = {
         if (connection instanceof WebSocket) {
             const mulawBuffer = await audioUtils.convertMp3ToMulaw(buffer, session.id);
             if (mulawBuffer) {
+                console.log("Streaming the audio on the call via websockets")
                 this.streamMulawAudioToTwilio(connection, mulawBuffer, session)
             }
         } else if (connection instanceof Room) {
             const pcmBuffer = await audioUtils.convertMp3ToPcmInt16(buffer, session.id)
+            console.log("Streaming the audio on the room")
             this.streamMulawAudioToLiveKit(connection, pcmBuffer, session)
         }
     }
@@ -2950,9 +2952,7 @@ wssChat.on('connection', (ws, req) => {
                 // console.log('start',parsedData);
                 let userData = parsedData.start?.customParameters?.caller || parsedData.userData;
                 session = sessionManager.createSession(ws, userData, parsedData.prompt, parsedData.tools); // Pass ws to session manager
-                sessionId = session.id;
-                session.callSid = parsedData.start?.callSid;
-                session.streamSid = parsedData?.streamSid; // Confirm streamSid in session
+                sessionId = session.id;// Confirm streamSid in session
                 session.caller = parsedData.start?.customParameters?.caller;
 
                 setChannel(ws, session, "chat")
