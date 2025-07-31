@@ -16,6 +16,8 @@ const WebSocket = require('ws');
 const { createClient, LiveTTSEvents, LiveClient } = require('@deepgram/sdk');
 const deepgramTts = createClient(process.env.DEEPGRAM_API);
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const bodyParser = require('body-parser');
+// const { MessagingResponse } = require('twilio');
 
 // LiveKit imports
 const { RoomServiceClient, AccessToken } = require('livekit-server-sdk');
@@ -1822,12 +1824,14 @@ const setChannel = (connection, session, channel) => {
     User Text will be in this format: "User input text here --end: input_channel"
     
     IMPORTANT: You must respond with ONLY a valid JSON object in this exact format:
-    {"response": "Your response text", "output_channel": "selected_channel from the available channels mostly select the input channel but ***when the user specify it then only switch okay***"}
+    {"response": "Your response text", "output_channel": "selected_channel from the available channels mostly select the input channel but ***when the user specify it then switch okay don't disappoint the user***"}
     
     Do not include any text before or after the JSON. The response must be parseable as JSON.
     
     Available channels: ${session.availableChannel.map(c => c.channel).join(", ")}`;
         session.prompt = prompt;
+        // console.log("added the channel", channel)
+        // console.log("available channel are", session.availableChannel)
     } else {
         // console.log("con",session.availableChannel.find(con => con.channel == channel).channel)
         session.availableChannel.forEach((c) => {
@@ -1846,7 +1850,47 @@ const changePrompt = (session, prompt, tools) => {
     session.prompt = changePrompt;
     session.tools = tools
 }
+async function sendSMS(to, message) {
+    try {
+        const sms = await services.twilio.messages.create({
+            body: message,
+            from: '+17752888591',
+            to: to
+        });
 
+        console.log('SMS sent successfully:', sms.sid);
+        return sms;
+    } catch (error) {
+        console.error('Error sending SMS:', error);
+        throw error;
+    }
+}
+const handleOutput = async (session, response, output_channel, input_channel) => {
+    output_channel = output_channel ? output_channel : input_channel
+    if (output_channel == "audio") {
+        handleInterruption(session); // Stop any ongoing AI speech
+        let TTSTimeStart = Date.now()
+        const audioBuffer = await aiProcessing.synthesizeSpeech3(response, session.id);
+        let TTSTime = Date.now() - TTSTimeStart
+        console.log("TTSTime", TTSTime)
+        if (!audioBuffer) throw new Error("Failed to synthesize speech.");
+        audioUtils.universalStreamAudio(session.availableChannel.find(con => con.channel == 'audio').connection, audioBuffer, session);
+    } else if (output_channel == "chat") {
+        session.availableChannel.find(con => con.channel == 'chat').connection.send(JSON.stringify({
+            event: 'media',
+            type: 'text_response',
+            media: { payload: response },
+            latency: session.metrics
+        }));
+    } else if (output_channel == "sms") {
+        console.log(session.phoneNo)
+        console.log("usee=r",session.userPhoneno)
+        sendSMS(session.phoneNo, response)
+    }
+
+    session.isAIResponding = false;
+
+}
 
 
 
@@ -1870,6 +1914,7 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization'],
     maxAge: 86400
 }));
+app.use(bodyParser.urlencoded({ extended: false }));
 app.use(express.json());
 
 // Session Management Instance
@@ -2331,27 +2376,7 @@ async function handleTurnCompletion(session) {
         console.log("Llm", LlmprocessTime)
         session.chatHistory.push({ role: 'assistant', content: processedText });
 
-        if (outputType === 'audio') {
-            handleInterruption(session);
-            let TTSTimeStart = Date.now()
-            const audioBuffer = await aiProcessing.synthesizeSpeech3(processedText, session.id);
-            let TTSTime = Date.now() - TTSTimeStart
-            console.log("TTSTime", TTSTime)
-            if (!audioBuffer) throw new Error("Failed to synthesize speech.");
-            session.interruption = false;
-            audioUtils.universalStreamAudio(session.availableChannel.find(con => con.channel == 'audio').connection, audioBuffer, session);
-            // await aiProcessing.processTextToSpeech(processedText, session);
-        } else {
-
-            session.availableChannel.find(con => con.channel == 'chat').connection.send(JSON.stringify({
-                event: 'media',
-                type: 'text_response',
-                media: { payload: processedText },
-                latency: session.metrics
-            }));
-            session.isAIResponding = false;
-            session.isAIResponding = false;
-        }
+        await handleOutput(session, processedText, outputType, "audio")
     } catch (err) {
         console.error(`Session ${session.id}: Error during turn completion handling:`, err);
         // session.room.localParticipant.publishData(
@@ -2482,6 +2507,58 @@ app.post('/change-prompt', async (req, res) => {
     }
 });
 
+
+
+
+// ...................................Sms Route...................................
+
+async function handleIncomingMessage(fromNumber, message) {
+    let session = sessionManager.createSession(null,fromNumber);
+    setChannel(null,session,"sms")
+    // console.log("session recieved",session)
+    const { processedText, outputType } = await aiProcessing.processInput(
+        { message: message, input_channel: 'sms' },
+        session
+    );
+
+    // console.log(processedText, outputType)
+    if (outputType == "sms") {
+        return processedText
+    } else {
+        handleOutput(session, processedText, outputType, "sms")
+    }
+}
+
+
+
+app.post('/sms', async (req, res) => {
+    console.log("SMS recieved")
+    const incomingMessage = req.body.Body;
+    const fromNumber = req.body.From;
+    const toNumber = req.body.To;
+
+    console.log("incomingMessage", incomingMessage)
+    console.log("fromNumber", fromNumber)
+    console.log("toNumber", toNumber)
+
+    console.log(`Received SMS from ${fromNumber}: ${incomingMessage}`);
+
+    // Process the incoming message
+    const reply = await handleIncomingMessage(fromNumber, incomingMessage);
+    console.log(reply)
+
+    // Respond with TwiML (optional - to send auto-reply)
+    const twiml = new twilio.twiml.MessagingResponse();
+    twiml.message(reply);
+
+    res.type('text/xml');
+    res.send(twiml.toString());
+});
+
+//................................................................................
+
+
+
 // Start server
 const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => {
@@ -2562,28 +2639,8 @@ wss.on('connection', (ws, req) => {
             // 5. Add AI response to chat history
             session.chatHistory.push({ role: 'assistant', content: processedText });
 
-            if (outputType === 'audio') {
-                // Your existing audio response logic
-                handleInterruption(session); // Stop any ongoing AI speech
-                const audioBuffer = await aiProcessing.synthesizeSpeech3(processedText, session.id);
-                if (!audioBuffer) throw new Error("Failed to synthesize speech.");
+            await handleOutput(session, processedText, outputType, "audio")
 
-                session.interruption = false;
-                // console.log(session.availableChannel.find(con => con.channel == 'audio').connection)
-                console.log("Here the connection is same : ",session.availableChannel.find(con => con.channel == 'audio').connection == ws)
-                audioUtils.universalStreamAudio(session.availableChannel.find(con => con.channel == 'audio').connection, audioBuffer, session);
-
-            } else {
-                // Handle text output
-
-                session.availableChannel.find(con => con.channel == 'chat').connection.send(JSON.stringify({
-                    event: 'media',
-                    type: 'text_response',
-                    media: { payload: processedText },
-                    latency: session.metrics
-                }));
-                session.isAIResponding = false;
-            }
         } catch (err) {
             console.error(`Session ${session.id}: Error during turn completion handling:`, err);
             ws.send(JSON.stringify({ type: 'error', error: err.message }));
@@ -2969,21 +3026,7 @@ wssChat.on('connection', (ws, req) => {
                         { message: parsedData.media.payload, input_channel: 'chat' },
                         session
                     );
-                    // console.log(processedText, outputType)
-
-                    if (outputType === 'chat') {
-                        session.availableChannel.find(con => con.channel == 'chat').connection.send(JSON.stringify({
-                            event: 'media',
-                            type: 'text_response',
-                            media: { payload: processedText },
-                            latency: session.metrics
-                        }));
-                    } else if (outputType === 'audio') {
-                        const audioBuffer = await aiProcessing.synthesizeSpeech3(processedText, session.id);
-                        if (audioBuffer) {
-                            audioUtils.universalStreamAudio(session.availableChannel.find(con => con.channel == 'audio').connection, audioBuffer, session);
-                        }
-                    }
+                    await handleOutput(session, processedText, outputType, "chat")
                 }
             } else if (parsedData.event === 'change_prompt') {
                 console.log('session', session.streamSid)
