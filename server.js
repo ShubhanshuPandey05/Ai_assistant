@@ -676,7 +676,9 @@ class SessionManager {
                 threadId: null,
                 phoneNo: user.Phone,
                 currentMessage: {},
-                availableChannel: [],
+                availableChannel: [{
+                    channel: "sms",
+                }],
                 chatHistory: [{
                     role: 'assistant',
                     content: `Hello ${user.Name} You are speaking to an AI assistant.`
@@ -1824,7 +1826,7 @@ const setChannel = (connection, session, channel) => {
     User Text will be in this format: "User input text here --end: input_channel"
     
     IMPORTANT: You must respond with ONLY a valid JSON object in this exact format:
-    {"response": "Your response text", "output_channel": "selected_channel from the available channels mostly select the input channel but ***when the user specify it then switch okay don't disappoint the user***"}
+    {"response": "Your response text", "output_channel": "selected the channel on the basis of the message or if the user want the response in the specific channel select that"}
     
     Do not include any text before or after the JSON. The response must be parseable as JSON.
     
@@ -2514,7 +2516,7 @@ app.post('/change-prompt', async (req, res) => {
 
 async function handleIncomingMessage(fromNumber, message) {
     let session = sessionManager.createSession(null,fromNumber);
-    setChannel(null,session,"sms")
+    // setChannel(null,session,"sms")
     // console.log("session recieved",session)
     const { processedText, outputType } = await aiProcessing.processInput(
         { message: message, input_channel: 'sms' },
