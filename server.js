@@ -2643,10 +2643,7 @@ wss.on('connection', (ws, req) => {
                         ...currentSession.chatHistory,
                         { role: 'user', content: currentSession.currentUserUtterance }
                     ];
-                    console.log(messagesForDetection);
 
-                    // 3. Ask the service if the turn is complete.
-                    // const isComplete = await turnDetector.CheckEndOfTurn({ messages: messagesForDetection })
                     let turnTime = Date.now();
 
                     turnDetector.CheckEndOfTurn({ messages: messagesForDetection }, (err, response) => {
@@ -2675,14 +2672,6 @@ wss.on('connection', (ws, req) => {
                             }
                         })();
                     });
-
-                    // if (isComplete.end_of_turn) {
-                    //     // YES, the turn is complete. Process the full utterance.
-                    //     await handleTurnCompletion(currentSession);
-                    // } else {
-                    //     // NO, the user just paused. Wait for them to continue.
-                    //     console.log(`Session ${currentSession.id}: ⏳ Turn NOT complete. Waiting for more input.`);
-                    // }
 
                 } else { // This is an interim result.
                     // Interim logic remains the same - it's great for UI feedback.
@@ -2889,9 +2878,9 @@ wss.on('connection', (ws, req) => {
 
     ws.on('close', () => {
         console.log(`Session ${sessionId}: Twilio client disconnected.`);
-        // if (sessionId) {
-        //     sessionManager.cleanupSession(session);
-        // }
+        if (sessionId) {
+            sessionManager.cleanupSession(session);
+        }
         clearInterval(deepgramKeepAliveInterval); // Clear keep-alive for this WS
     });
 
@@ -2975,12 +2964,12 @@ wssChat.on('connection', (ws, req) => {
                 }));
             } else if (parsedData.event === 'media' && parsedData.media?.payload) {
                 if (parsedData.type === 'chat') {
-                    console.log("chat recieved")
+                    // console.log("chat recieved")
                     const { processedText, outputType } = await aiProcessing.processInput(
                         { message: parsedData.media.payload, input_channel: 'chat' },
                         session
                     );
-                    console.log(processedText, outputType)
+                    // console.log(processedText, outputType)
 
                     if (outputType === 'chat') {
                         session.availableChannel.find(con => con.channel == 'chat').connection.send(JSON.stringify({
