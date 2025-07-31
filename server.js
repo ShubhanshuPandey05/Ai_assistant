@@ -2568,6 +2568,7 @@ wss.on('connection', (ws, req) => {
 
                 session.interruption = false;
                 // console.log(session.availableChannel.find(con => con.channel == 'audio').connection)
+                console.log(session.availableChannel.find(con => con.channel == 'audio').connection == ws)
                 audioUtils.universalStreamAudio(session.availableChannel.find(con => con.channel == 'audio').connection, audioBuffer, session);
 
             } else {
