@@ -653,6 +653,7 @@ class SessionManager {
             const session = {
                 id: id,
                 room: roomName,
+                name: user.Name,
                 dgSocket: null,
                 lastTranscript: '',
                 transcriptBuffer: [],
@@ -731,6 +732,7 @@ class SessionManager {
         const session = {
             id: id,
             room: roomName,
+            name: "User",
             dgSocket: null,
             lastTranscript: '',
             transcriptBuffer: [],
@@ -1529,6 +1531,66 @@ const aiProcessing = {
         }
     },
 
+    async addSystemMessage(input, session) {
+        // Initialize conversation history if not exists
+        if (!session.messages) {
+            session.messages = [];
+        }
+
+        // Add user message to conversation
+        session.messages.push({
+            role: "system",
+            parts: [{ text: `${input.message}` }]
+        });
+        // console.log("session.messages", session.messages);
+
+        // Build the request for Gemini
+        const geminiRequest = {
+            contents: session.messages,
+            tools: session.tools.length > 0 ? [{ functionDeclarations: session.tools }] : undefined,
+            // tools: toolDefinitions,
+            generationConfig: {
+                temperature: 0.2
+            },
+            systemInstruction: session.prompt ? {
+                parts: [{ text: session.prompt }]
+            } : undefined
+        };
+
+        let processTimeStart = Date.now();
+        let response = await services.gemini.generateContent(geminiRequest);
+        let processTime = Date.now() - processTimeStart;
+        console.log("LLmProcessTime", processTime);
+
+        const candidate = response.response.candidates[0];
+        const assistantContent = candidate.content;
+
+        // Add assistant's response to conversation history
+        session.messages.push({
+            role: "model",
+            parts: assistantContent.parts
+        });
+
+        // No function calls - return direct response
+        const textPart = assistantContent.parts.find(part => part.text);
+        const responseText = textPart ? textPart.text : "";
+
+        let parsedData;
+        try {
+            parsedData = JSON.parse(responseText);
+            return {
+                processedText: parsedData.response,
+                outputType: parsedData.output_channel
+            };
+        } catch (error) {
+            console.log("error", parsedData)
+            return {
+                processedText: responseText || "Sorry, I had trouble understanding. Could you please rephrase?",
+                outputType: input.input_channel
+            };
+        }
+    },
+
     async synthesizeSpeech2(text, sessionId) {
         if (!text) {
             console.error(`Session ${sessionId}: No text provided for synthesis.`);
@@ -1806,29 +1868,25 @@ const setChannel = (connection, session, channel) => {
         let prompt = `
 Hey You are an Agent who can communicate through many channels using the variable output_channel in your response.
 The communication channels are: ${session.availableChannel.map(c => c.channel).join(", ")}
-
+There is the system who will inform you the user actions.
 
 ## This is the User Prompt:
 ${session.prompt}
-        
+
 ## Output Format:
 Respond with ONLY a valid JSON object in this exact format:
 {
-    "response": "Your response text",
-    "output_channel": "selected_channel"
+    "response": "Your response",
+    "output_channel": "communication channel"
 }
 - DO NOT include any explanation or text before or after the JSON.
-- DO NOT use markdown, no triple backticks, no comments.
 - Your response MUST be valid JSON and parsable.
 
-        
 ## Example Output:
-If the user says "Please send it by SMS", respond like this:
+If the user ask For an SMS then Set the channel to the sms:
 {"response": "Your response", "output_channel": "sms"}
-
-or If the user ask for any other channel then send my that channel:
+If the user ask for any other channel then send my that channel:
 {"response": "Your response", "output_channel": "other_channel"}
-
 Remember, output must be STRICTLY JSON only.
 `;
 
@@ -1851,7 +1909,7 @@ const changePrompt = (session, prompt, tools) => {
     session.tools = tools
 }
 
-async function sendSMS(to, message) {
+async function sendSMS(to, message, session, input_channel) {
     try {
         const sms = await services.twilio.messages.create({
             body: message,
@@ -1860,6 +1918,7 @@ async function sendSMS(to, message) {
         });
 
         console.log('SMS sent successfully:', sms.sid);
+        sendSystemMessage(session, `message sent successfully to the user`, input_channel);
         return sms;
     } catch (error) {
         console.error('Error sending SMS:', error);
@@ -1886,29 +1945,24 @@ const handleOutput = async (session, response, output_channel, input_channel) =>
         }));
     } else if (output_channel == "sms") {
         console.log(session.phoneNo)
-        console.log("usee=r", session.phoneNo)
-        sendSMS(session.phoneNo, response)
+        console.log("user", session.phoneNo)
+        sendSMS(session.phoneNo, response, session, input_channel)
+    } else if (output_channel == "system") {
+        console.log("system response")
     }
 
     session.isAIResponding = false;
 
 }
 
+const sendSystemMessage = async (session, message, channel) => {
+    const { processedText, outputType } = await aiProcessing.processInput(
+        { message: message, input_channel: channel },
+        session
+    )
 
-
-
-
-
-
-
-// const sendInitialAnnouncement = (session, user, channel) => {
-//     session.messages.push({
-//         role: "system",
-//         parts: [{ text: `User has joined the call. Through this ${channel}, User Name: ${user.Name} ` }]
-//     });
-
-// }
-
+    await handleOutput(session, processedText, outputType, channel);
+}
 
 
 
@@ -2008,6 +2062,8 @@ function setupRoomEventHandlers(room, session) {
         console.log(`Session ${session.id}: Participant connected: ${participant.identity} `);
         console.log("prompt: ", session.prompt)
         console.log("tools: ", session.tools)
+
+        sendSystemMessage(session, `${session.name} have joined via WebCall`, "audio");
 
         // Initialize audio processing for this participant
         setupAudioProcessingForParticipant(participant, session);
@@ -2527,6 +2583,7 @@ app.post('/change-prompt', async (req, res) => {
 
 
 
+
 // ...................................Sms Route...................................
 
 async function handleIncomingMessage(fromNumber, message) {
@@ -2825,6 +2882,8 @@ wss.on('connection', (ws, req) => {
                 session.streamSid = parsedData?.streamSid; // Confirm streamSid in session
                 session.caller = parsedData.start?.customParameters?.caller;
                 setChannel(ws, session, "audio")
+                sendSystemMessage(session, `${session.name} have joined via PhoneCall`, "audio");
+
                 // console.log(session.caller);
                 console.log(`Session ${sessionId}: Twilio stream started for CallSid: ${session.callSid}`);
                 ws.send(JSON.stringify({
@@ -3019,7 +3078,7 @@ wssChat.on('connection', (ws, req) => {
                 session.caller = parsedData.start?.customParameters?.caller;
 
                 setChannel(ws, session, "chat")
-
+                sendSystemMessage(session, `${session.name} have joined via Chat`, "chat");
                 // console.log(session.caller);
                 console.log(`Session ${sessionId}: Twilio stream started for CallSid: ${session.callSid}`);
                 ws.send(JSON.stringify({
