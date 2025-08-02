@@ -654,16 +654,13 @@ class SessionManager {
                 id: id,
                 room: roomName,
                 dgSocket: null,
-                reconnectAttempts: 0,
                 lastTranscript: '',
                 transcriptBuffer: [],
                 audioStartTime: null,
-                userPhoneno: user.Phone,
                 lastInterimTime: Date.now(),
                 isSpeaking: false,
                 lastInterimTranscript: '',
                 interimResultsBuffer: [],
-                userSpeak: false,
                 streamSid: '',
                 callSid: '',
                 isAIResponding: false,
@@ -671,18 +668,12 @@ class SessionManager {
                 interruption: false,
                 lastInterruptionTime: 0,
                 interruptionCooldown: 200,
-                ASSISTANT_ID: null,
                 lastResponseId: null,
-                threadId: null,
                 phoneNo: user.Phone,
-                currentMessage: {},
                 availableChannel: [{
-                    channel: "sms",
+                    channel: "sms"
                 }],
-                chatHistory: [{
-                    role: 'assistant',
-                    content: `Hello ${user.Name} You are speaking to an AI assistant.`
-                }],
+                chatHistory: [],
                 //prompt: `You are a helpful AI assistant for the Shopify store "Gautam Garment". The user Name is ${user.Name}  You have access to several tools (functions) that let you fetch and provide real-time information about products, orders, and customers from the store.
 
                 // Your Tasks:
@@ -729,8 +720,6 @@ class SessionManager {
                 currentUserUtterance: '',
                 isTalking: false,
                 tools: tool,
-                denoiser: null,
-                remainder: null,
                 message: []
             };
             userStorage.setActiveSession(userData, id);
@@ -743,16 +732,13 @@ class SessionManager {
             id: id,
             room: roomName,
             dgSocket: null,
-            reconnectAttempts: 0,
             lastTranscript: '',
             transcriptBuffer: [],
             audioStartTime: null,
-            userPhoneno: "",
             lastInterimTime: Date.now(),
             isSpeaking: false,
             lastInterimTranscript: '',
             interimResultsBuffer: [],
-            userSpeak: false,
             streamSid: '',
             callSid: '',
             isAIResponding: false,
@@ -760,17 +746,14 @@ class SessionManager {
             interruption: false,
             lastInterruptionTime: 0,
             interruptionCooldown: 200,
-            ASSISTANT_ID: null,
             lastResponseId: null,
-            threadId: null,
             phoneNo: "",
-            currentMessage: {},
             availableChannel: [],
             chatHistory: [{
                 role: 'assistant',
                 content: "Hello! You are speaking to an AI assistant."
             }],
-            //             prompt: `You are a helpful AI assistant for the Shopify store "Gautam Garment". You have access to several tools (functions) that let you fetch and provide real-time information about products, orders, and customers from the store.
+            //          prompt: `You are a helpful AI assistant for the Shopify store "Gautam Garment". You have access to several tools (functions) that let you fetch and provide real-time information about products, orders, and customers from the store.
             prompt: prompt || "You are ai assistant.",
             metrics: { llm: 0, stt: 0, tts: 0 },
 
@@ -782,8 +765,6 @@ class SessionManager {
             currentUserUtterance: '',
             isTalking: false,
             tools: tool,
-            denoiser: null,
-            remainder: null,
             message: []
         };
         this.sessions.set(id, session);
@@ -1231,6 +1212,7 @@ const audioUtils = {
 
 // AI Processing
 const aiProcessing = {
+
     // async processInputVIARESPONSE_API(input, session) {
     //     // console.log("here are the sessions details :", session.prompt, session.tools)
 
@@ -1821,21 +1803,37 @@ const setChannel = (connection, session, channel) => {
             channel: channel,
             connection: connection
         });
-        let prompt = `${session.prompt}
-    
-    User Text will be in this format: "User input text here --end: input_channel"
-    
-    IMPORTANT: You must respond with ONLY a valid JSON object in this exact format:
-    {"response": "Your response text", "output_channel": "selected the channel on the basis of the message or if the user want the response in the specific channel select that"}
-    
-    Do not include any text before or after the JSON. The response must be parseable as JSON.
-    
-    Available channels: ${session.availableChannel.map(c => c.channel).join(", ")}`;
+        let prompt = `
+Hey You are an Agent who can communicate through many channels using the variable output_channel in your response.
+The communication channels are: ${session.availableChannel.map(c => c.channel).join(", ")}
+
+
+## This is the User Prompt:
+${session.prompt}
+        
+## Output Format:
+Respond with ONLY a valid JSON object in this exact format:
+{
+    "response": "Your response text",
+    "output_channel": "selected_channel"
+}
+- DO NOT include any explanation or text before or after the JSON.
+- DO NOT use markdown, no triple backticks, no comments.
+- Your response MUST be valid JSON and parsable.
+
+        
+## Example Output:
+If the user says "Please send it by SMS", respond like this:
+{"response": "Your response", "output_channel": "sms"}
+
+or If the user ask for any other channel then send my that channel:
+{"response": "Your response", "output_channel": "other_channel"}
+
+Remember, output must be STRICTLY JSON only.
+`;
+
         session.prompt = prompt;
-        // console.log("added the channel", channel)
-        // console.log("available channel are", session.availableChannel)
     } else {
-        // console.log("con",session.availableChannel.find(con => con.channel == channel).channel)
         session.availableChannel.forEach((c) => {
             if (c.channel === channel) {
                 c.connection = connection
@@ -1852,6 +1850,7 @@ const changePrompt = (session, prompt, tools) => {
     session.prompt = changePrompt;
     session.tools = tools
 }
+
 async function sendSMS(to, message) {
     try {
         const sms = await services.twilio.messages.create({
@@ -1867,6 +1866,7 @@ async function sendSMS(to, message) {
         throw error;
     }
 }
+
 const handleOutput = async (session, response, output_channel, input_channel) => {
     output_channel = output_channel ? output_channel : input_channel
     if (output_channel == "audio") {
@@ -1886,13 +1886,28 @@ const handleOutput = async (session, response, output_channel, input_channel) =>
         }));
     } else if (output_channel == "sms") {
         console.log(session.phoneNo)
-        console.log("usee=r",session.userPhoneno)
+        console.log("usee=r", session.phoneNo)
         sendSMS(session.phoneNo, response)
     }
 
     session.isAIResponding = false;
 
 }
+
+
+
+
+
+
+
+
+// const sendInitialAnnouncement = (session, user, channel) => {
+//     session.messages.push({
+//         role: "system",
+//         parts: [{ text: `User has joined the call. Through this ${channel}, User Name: ${user.Name} ` }]
+//     });
+
+// }
 
 
 
@@ -2415,15 +2430,15 @@ function handleInterruption(session) {
 
 // Send initial announcement
 async function sendInitialAnnouncement(session) {
-    let announcementText = session.chatHistory[0].content;
+    // let announcementText = session.chatHistory[0].content;
 
-    // await audioUtils.deepgramTtsToLiveKit(session.room, announcementText, session);
-    const mp3Buffer = await aiProcessing.synthesizeSpeech3(announcementText, session.id);
-    if (mp3Buffer) {
+    // // await audioUtils.deepgramTtsToLiveKit(session.room, announcementText, session);
+    // const mp3Buffer = await aiProcessing.synthesizeSpeech3(announcementText, session.id);
+    // if (mp3Buffer) {
 
-        audioUtils.universalStreamAudio(session.availableChannel.find(con => con.channel == 'audio').connection, mp3Buffer, session);
+    //     audioUtils.universalStreamAudio(session.availableChannel.find(con => con.channel == 'audio').connection, mp3Buffer, session);
 
-    }
+    // }
     // await aiProcessing.processTextToSpeech(announcementText, session);
 }
 
@@ -2515,7 +2530,7 @@ app.post('/change-prompt', async (req, res) => {
 // ...................................Sms Route...................................
 
 async function handleIncomingMessage(fromNumber, message) {
-    let session = sessionManager.createSession(null,fromNumber);
+    let session = sessionManager.createSession(null, fromNumber);
     // setChannel(null,session,"sms")
     // console.log("session recieved",session)
     const { processedText, outputType } = await aiProcessing.processInput(
@@ -3013,14 +3028,14 @@ wssChat.on('connection', (ws, req) => {
                     prompt: session.prompt,
                     functions: toolDefinitions
                 }))
-                let announcementText = session.chatHistory[0].content; // Get initial message from chat history
+                // let announcementText = session.chatHistory[0].content; // Get initial message from chat history
 
-                session.availableChannel.find(con => con.channel == 'chat').connection.send(JSON.stringify({
-                    event: 'media',
-                    type: 'text_response',
-                    media: { payload: announcementText },
-                    latency: session.metrics
-                }));
+                // session.availableChannel.find(con => con.channel == 'chat').connection.send(JSON.stringify({
+                //     event: 'media',
+                //     type: 'text_response',
+                //     media: { payload: announcementText },
+                //     latency: session.metrics
+                // }));
             } else if (parsedData.event === 'media' && parsedData.media?.payload) {
                 if (parsedData.type === 'chat') {
                     // console.log("chat recieved")
