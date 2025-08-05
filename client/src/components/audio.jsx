@@ -107,20 +107,20 @@ const Audio = () => {
         "required": ["orderId"]
       }
     },
-    {
-      "name": "checkOrderCancellable",
-      "description": "Check if a Shopify order can be cancelled. This function verifies the order status and returns whether cancellation is possible along with the reason if it's not cancellable.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "orderId": {
-            "type": "string",
-            "description": "The Shopify order ID to check. Can be either a numeric ID or full GraphQL ID."
-          }
-        },
-        "required": ["orderId"]
-      }
-    }
+    // {
+    //   "name": "checkOrderCancellable",
+    //   "description": "Check if a Shopify order can be cancelled. This function verifies the order status and returns whether cancellation is possible along with the reason if it's not cancellable.",
+    //   "parameters": {
+    //     "type": "object",
+    //     "properties": {
+    //       "orderId": {
+    //         "type": "string",
+    //         "description": "The Shopify order ID to check. Can be either a numeric ID or full GraphQL ID."
+    //       }
+    //     },
+    //     "required": ["orderId"]
+    //   }
+    // }
   ]);
   const [selectedFunction, setSelectedFunction] = useState([]);
   const [callInput, setCallInput] = useState('');

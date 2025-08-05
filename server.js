@@ -382,7 +382,7 @@ const functions = {
 
             const query = `
             {
-              orders(first: 50${cursor ? `, after: "${cursor}"` : ''}, query: "customer_id:${customerId}") {
+              orders(first: 50${cursor ? `, after: "${cursor}"` : ''}, query: "customer_id:${customerId} AND status:open") {
                 edges {
                   cursor
                   node {
@@ -416,7 +416,6 @@ const functions = {
               }
             }
             `;
-
             const response = await fetch(graphqlEndpoint, {
                 method: 'POST',
                 headers: {
