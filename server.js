@@ -8,7 +8,7 @@ const OpenAI = require("openai");
 const twilio = require('twilio');
 const SHOPIFY_STORE_URL = process.env.SHOPIFY_STORE_URL;
 const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
-const graphqlEndpoint = `https://${SHOPIFY_STORE_URL}/admin/api/2023-01/graphql.json`;
+const graphqlEndpoint = `https://${SHOPIFY_STORE_URL}/admin/api/2025-07/graphql.json`;
 const grpc = require('@grpc/grpc-js');
 const protoLoader = require('@grpc/proto-loader');
 const { Transform } = require('stream');
@@ -77,11 +77,16 @@ const toolDefinitions = [
     },
     {
         name: "getAllOrders",
-        description: "Get all orders from the system",
+        description: "Get all orders of that customer from the system",
         parameters: {
             type: "object",
-            properties: {},
-            required: []
+            properties: {
+                phoneNo: {
+                    type: "string",
+                    description: "User's phone number"
+                }
+            },
+            required: ["phoneNo"]
         }
     },
     {
@@ -97,7 +102,66 @@ const toolDefinitions = [
             },
             required: ["orderId"]
         }
+    },
+    {
+        name: "hangUp",
+        description: "Hang up the call",
+        parameters: {
+            type: "object",
+            properties: {},
+            required: []
+        }
+    },
+    {
+        "name": "cancelOrder",
+        "description": "Cancel a Shopify order with specified options. This function can cancel an order, issue refunds, restock items, and send notification emails to customers.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "orderId": {
+                    "type": "string",
+                    "description": "The Shopify order ID to cancel. Can be either a numeric ID or full GraphQL ID."
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "The reason for cancelling the order",
+                    "enum": ["CUSTOMER", "FRAUD", "INVENTORY", "DECLINED", "OTHER"],
+                    "default": "OTHER"
+                },
+                "email": {
+                    "type": "boolean",
+                    "description": "Whether to send a cancellation email to the customer",
+                    "default": true
+                },
+                "refund": {
+                    "type": "boolean",
+                    "description": "Whether to issue a refund for the cancelled order",
+                    "default": true
+                },
+                "restock": {
+                    "type": "boolean",
+                    "description": "Whether to restock the cancelled items back to inventory",
+                    "default": true
+                }
+            },
+            "required": ["orderId"]
+        }
+    },
+    {
+        "name": "checkOrderCancellable",
+        "description": "Check if a Shopify order can be cancelled. This function verifies the order status and returns whether cancellation is possible along with the reason if it's not cancellable.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "orderId": {
+                    "type": "string",
+                    "description": "The Shopify order ID to check. Can be either a numeric ID or full GraphQL ID."
+                }
+            },
+            "required": ["orderId"]
+        }
     }
+
 ];
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_AI);
@@ -195,6 +259,8 @@ const functions = {
     },
 
     async getUserDetailsByPhoneNo(phone) {
+
+        console.log("phone:-", phone)
         const query = `
         {
           customers(first: 1, query: "phone:${phone}") {
@@ -235,131 +301,422 @@ const functions = {
         };
     },
 
-    async getAllOrders(cursor = null) {
-        const query = `
-    {
-      orders(first: 50${cursor ? `, after: "${cursor}"` : ''}) {
-        edges {
-          cursor
-          node {
-            id
-            name
-            email
-            phone
-            totalPriceSet {
-              shopMoney {
-                amount
-                currencyCode
-              }
+    //     async getAllOrders(cursor = null) {
+    //         const query = `
+    //     {
+    //       orders(first: 50${cursor ? `, after: "${cursor}"` : ''}) {
+    //         edges {
+    //           cursor
+    //           node {
+    //             id
+    //             name
+    //             email
+    //             phone
+    //             totalPriceSet {
+    //               shopMoney {
+    //                 amount
+    //                 currencyCode
+    //               }
+    //             }
+    //             createdAt
+    //             fulfillmentStatus
+    //             lineItems(first: 10) {
+    //               edges {
+    //                 node {
+    //                   title
+    //                   quantity
+    //                 }
+    //               }
+    //             }
+    //           }
+    //         }
+    //         pageInfo {
+    //           hasNextPage
+    //         }
+    //       }
+    //     }
+    //   `;
+
+    //         const response = await fetch(graphqlEndpoint, {
+    //             method: 'POST',
+    //             headers: {
+    //                 'Content-Type': 'application/json',
+    //                 'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
+    //             },
+    //             body: JSON.stringify({ query }),
+    //         });
+
+    //         const data = await response.json();
+    //         if (!data.data || !data.data.orders) return { orders: [], hasNextPage: false, lastCursor: null };
+
+    //         const orders = data.data.orders.edges.map(edge => ({
+    //             id: edge.node.id,
+    //             name: edge.node.name,
+    //             email: edge.node.email,
+    //             phone: edge.node.phone,
+    //             total: edge.node.totalPriceSet.shopMoney.amount,
+    //             currency: edge.node.totalPriceSet.shopMoney.currencyCode,
+    //             createdAt: edge.node.createdAt,
+    //             fulfillmentStatus: edge.node.fulfillmentStatus,
+    //             lineItems: edge.node.lineItems.edges.map(itemEdge => ({
+    //                 title: itemEdge.node.title,
+    //                 quantity: itemEdge.node.quantity
+    //             }))
+    //         }));
+
+    //         const hasNextPage = data.data.orders.pageInfo.hasNextPage;
+    //         const lastCursor = data.data.orders.edges.length > 0 ? data.data.orders.edges[data.data.orders.edges.length - 1].cursor : null;
+
+    //         return { orders, hasNextPage, lastCursor };
+    //     },
+
+    async getAllOrders(phone, cursor = null) {
+        try {
+            let customer = await this.getUserDetailsByPhoneNo(phone);
+            if (!customer || !customer.id) {
+                throw new Error("Customer not found");
             }
-            createdAt
-            fulfillmentStatus
-            lineItems(first: 10) {
-              edges {
-                node {
-                  title
-                  quantity
+
+            let customerId = customer.id.split('/').pop(); // gives "1234567890"
+            console.log("customerId:", customerId);
+
+            const query = `
+            {
+              orders(first: 50${cursor ? `, after: "${cursor}"` : ''}, query: "customer_id:${customerId}") {
+                edges {
+                  cursor
+                  node {
+                    id
+                    name
+                    email
+                    phone
+                    totalPriceSet {
+                      shopMoney {
+                        amount
+                        currencyCode
+                      }
+                    }
+                    createdAt
+                    fulfillments {
+                      status
+                    }
+                    lineItems(first: 10) {
+                      edges {
+                        node {
+                          title
+                          quantity
+                        }
+                      }
+                    }
+                  }
+                }
+                pageInfo {
+                  hasNextPage
                 }
               }
             }
-          }
+            `;
+
+            const response = await fetch(graphqlEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
+                },
+                body: JSON.stringify({ query }),
+            });
+
+            const data = await response.json();
+            console.log("GraphQL response:", data);
+
+            if (!data.data || !data.data.orders) {
+                return { orders: [], hasNextPage: false, lastCursor: null };
+            }
+
+            const orders = data.data.orders.edges.map(edge => ({
+                id: edge.node.id,
+                name: edge.node.name,
+                email: edge.node.email,
+                phone: edge.node.phone,
+                total: edge.node.totalPriceSet.shopMoney.amount,
+                currency: edge.node.totalPriceSet.shopMoney.currencyCode,
+                createdAt: edge.node.createdAt,
+                fulfillmentStatus: edge.node.fulfillments.map(f => f.status).join(', '),
+                lineItems: edge.node.lineItems.edges.map(itemEdge => ({
+                    title: itemEdge.node.title,
+                    quantity: itemEdge.node.quantity
+                }))
+            }));
+
+            const hasNextPage = data.data.orders.pageInfo.hasNextPage;
+            const lastCursor = data.data.orders.edges.length > 0
+                ? data.data.orders.edges[data.data.orders.edges.length - 1].cursor
+                : null;
+
+            return { orders, hasNextPage, lastCursor };
+        } catch (error) {
+            console.error("Error in getAllOrders:", error);
+            return { orders: [], hasNextPage: false, lastCursor: null };
         }
-        pageInfo {
-          hasNextPage
-        }
-      }
-    }
-  `;
-
-        const response = await fetch(graphqlEndpoint, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
-            },
-            body: JSON.stringify({ query }),
-        });
-
-        const data = await response.json();
-        if (!data.data || !data.data.orders) return { orders: [], hasNextPage: false, lastCursor: null };
-
-        const orders = data.data.orders.edges.map(edge => ({
-            id: edge.node.id,
-            name: edge.node.name,
-            email: edge.node.email,
-            phone: edge.node.phone,
-            total: edge.node.totalPriceSet.shopMoney.amount,
-            currency: edge.node.totalPriceSet.shopMoney.currencyCode,
-            createdAt: edge.node.createdAt,
-            fulfillmentStatus: edge.node.fulfillmentStatus,
-            lineItems: edge.node.lineItems.edges.map(itemEdge => ({
-                title: itemEdge.node.title,
-                quantity: itemEdge.node.quantity
-            }))
-        }));
-
-        const hasNextPage = data.data.orders.pageInfo.hasNextPage;
-        const lastCursor = data.data.orders.edges.length > 0 ? data.data.orders.edges[data.data.orders.edges.length - 1].cursor : null;
-
-        return { orders, hasNextPage, lastCursor };
     },
 
     async getOrderById(orderId) {
-        const query = `
-    {
-      order(id: "${orderId}") {
-        id
-        name
-        email
-        phone
-        totalPriceSet {
-          shopMoney {
-            amount
-            currencyCode
-          }
-        }
-        createdAt
-        fulfillmentStatus
-        lineItems(first: 10) {
-          edges {
-            node {
-              title
-              quantity
+        try {
+            if (!orderId.startsWith("gid://")) {
+                orderId = `gid://shopify/Order/${orderId}`;
             }
-          }
+
+            const query = `
+            query GetOrder($id: ID!) {
+              order(id: $id) {
+                id
+                name
+                email
+                phone
+                totalPriceSet {
+                  shopMoney {
+                    amount
+                    currencyCode
+                  }
+                }
+                createdAt
+                fulfillments {
+                  status
+                }
+                lineItems(first: 10) {
+                  edges {
+                    node {
+                      title
+                      quantity
+                    }
+                  }
+                }
+              }
+            }`;
+
+            const variables = {
+                id: orderId
+            };
+
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
+            const response = await fetch(graphqlEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
+                },
+                body: JSON.stringify({
+                    query,
+                    variables
+                }),
+                signal: controller.signal
+            });
+
+            clearTimeout(timeout);
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log(data)
+            // Check for GraphQL errors
+            if (data.errors) {
+                console.error("GraphQL errors:", data.errors);
+                return null;
+            }
+
+            if (!data.data || !data.data.order) {
+                return null;
+            }
+
+            const order = data.data.order;
+            return {
+                id: order.id,
+                name: order.name,
+                email: order.email,
+                phone: order.phone,
+                total: order.totalPriceSet?.shopMoney?.amount || '0',
+                currency: order.totalPriceSet?.shopMoney?.currencyCode || 'USD',
+                createdAt: order.createdAt,
+                fulfillmentStatus: order.fulfillments?.length > 0
+                    ? order.fulfillments.map(f => f.status).join(', ')
+                    : 'unfulfilled',
+                lineItems: order.lineItems?.edges?.map(itemEdge => ({
+                    title: itemEdge.node.title,
+                    quantity: itemEdge.node.quantity
+                })) || []
+            };
+        } catch (err) {
+            if (err.name === 'AbortError') {
+                console.error("Request timeout:", err);
+            } else {
+                console.error("getOrderById error:", err);
+            }
+            return null;
         }
-      }
-    }
-  `;
+    },
 
-        const response = await fetch(graphqlEndpoint, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
-            },
-            body: JSON.stringify({ query }),
-        });
+    async endCall(connection) {
+        if (connection instanceof WebSocket) {
+            connection.close();
+            console.log("websocket connection close")
+        } else {
+            await roomService.deleteRoom(connection);
+            return `Room ${connection} deleted`;
+        }
+    },
 
-        const data = await response.json();
-        if (!data.data || !data.data.order) return null;
+    async cancelOrder(orderId, options = {}) {
+        try {
+            if (!orderId.startsWith("gid://")) {
+                orderId = `gid://shopify/Order/${orderId}`;
+            }
 
-        const order = data.data.order;
-        return {
-            id: order.id,
-            name: order.name,
-            email: order.email,
-            phone: order.phone,
-            total: order.totalPriceSet.shopMoney.amount,
-            currency: order.totalPriceSet.shopMoney.currencyCode,
-            createdAt: order.createdAt,
-            fulfillmentStatus: order.fulfillmentStatus,
-            lineItems: order.lineItems.edges.map(itemEdge => ({
-                title: itemEdge.node.title,
-                quantity: itemEdge.node.quantity
-            }))
-        };
-    }
+            fetch(graphqlEndpoint, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN, // Replace with your actual access token
+                },
+                body: JSON.stringify({
+                  query: `
+                    mutation OrderCancel(
+                      $orderId: ID!,
+                      $notifyCustomer: Boolean,
+                      $refundMethod: OrderCancelRefundMethodInput!,
+                      $restock: Boolean!,
+                      $reason: OrderCancelReason!,
+                      $staffNote: String
+                    ) {
+                      orderCancel(
+                        orderId: $orderId,
+                        notifyCustomer: $notifyCustomer,
+                        refundMethod: $refundMethod,
+                        restock: $restock,
+                        reason: $reason,
+                        staffNote: $staffNote
+                      ) {
+                        job {
+                          id
+                          done
+                        }
+                        orderCancelUserErrors {
+                          field
+                          message
+                          code
+                        }
+                        userErrors {
+                          field
+                          message
+                        }
+                      }
+                    }
+                  `,
+                  variables: {
+                    orderId: orderId, // Replace with actual order ID
+                    notifyCustomer: true,
+                    refundMethod: {
+                      originalPaymentMethodsRefund: true
+                    },
+                    restock: true,
+                    reason: "CUSTOMER",
+                    staffNote: "Wrong size. Customer reached out saying they already re-purchased the correct size."
+                  }
+                })
+              })
+              .then(response => response.json())
+              .then(data => console.log(data))
+              .catch(error => console.error('Error:', error));
+              
+
+        } catch (err) {
+            if (err.name === 'AbortError') {
+                console.error("Request timeout:", err);
+                return {
+                    success: false,
+                    error: "Request timeout"
+                };
+            } else {
+                console.error("cancelOrder error:", err);
+                return {
+                    success: false,
+                    error: err.message || "Unknown error occurred"
+                };
+            }
+        }
+    },
+
+    // async checkOrderCancellable(orderId) {
+    //     try {
+    //         if (!orderId.startsWith("gid://")) {
+    //             orderId = `gid://shopify/Order/${orderId}`;
+    //         }
+
+    //         const query = `
+    //         query CheckOrderCancellable($id: ID!) {
+    //           order(id: $id) {
+    //             id
+    //             name
+    //             cancelledAt
+    //             financialStatus
+    //             fulfillmentStatus
+    //             fulfillments {
+    //               status
+    //             }
+    //           }
+    //         }`;
+
+    //         const variables = { id: orderId };
+
+    //         const response = await fetch(graphqlEndpoint, {
+    //             method: 'POST',
+    //             headers: {
+    //                 'Content-Type': 'application/json',
+    //                 'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
+    //             },
+    //             body: JSON.stringify({ query, variables })
+    //         });
+
+    //         const data = await response.json();
+
+    //         if (!data.data?.order) {
+    //             return { cancellable: false, reason: "Order not found" };
+    //         }
+
+    //         const order = data.data.order;
+
+    //         // Already cancelled
+    //         if (order.cancelledAt) {
+    //             return { cancellable: false, reason: "Order already cancelled" };
+    //         }
+
+    //         // Check if already fulfilled
+    //         const hasCompleteFulfillments = order.fulfillments?.some(f => f.status === 'SUCCESS');
+    //         if (hasCompleteFulfillments) {
+    //             return {
+    //                 cancellable: false,
+    //                 reason: "Order has completed fulfillments - consider refunding instead"
+    //             };
+    //         }
+
+    //         return {
+    //             cancellable: true,
+    //             order: {
+    //                 id: order.id,
+    //                 name: order.name,
+    //                 financialStatus: order.financialStatus,
+    //                 fulfillmentStatus: order.fulfillmentStatus
+    //             }
+    //         };
+
+    //     } catch (err) {
+    //         console.error("checkOrderCancellable error:", err);
+    //         return { cancellable: false, reason: "Error checking order status" };
+    //     }
+    // }
 }
 
 // Configuration Constants
@@ -720,7 +1077,15 @@ class SessionManager {
                 isVadSpeechActive: false,
                 currentUserUtterance: '',
                 isTalking: false,
-                tools: tool,
+                tools: [...tool, {
+                    name: "hangUp",
+                    description: "Hang up the call",
+                    parameters: {
+                        type: "object",
+                        properties: {},
+                        required: []
+                    }
+                }],
                 message: []
             };
             userStorage.setActiveSession(userData, id);
@@ -766,7 +1131,15 @@ class SessionManager {
             isVadSpeechActive: false,
             currentUserUtterance: '',
             isTalking: false,
-            tools: tool,
+            tools: [...tool, {
+                name: "hangUp",
+                description: "Hang up the call",
+                parameters: {
+                    type: "object",
+                    properties: {},
+                    required: []
+                }
+            }],
             message: []
         };
         this.sessions.set(id, session);
@@ -1445,11 +1818,32 @@ const aiProcessing = {
                 if (functionCall.name === "getAllProducts") {
                     toolResult = await functions.getAllProducts();
                 } else if (functionCall.name === "getUserDetailsByPhoneNo") {
-                    toolResult = await functions.getUserDetailsByPhoneNo(session.caller);
+                    toolResult = await functions.getUserDetailsByPhoneNo(args.phoneNo);
                 } else if (functionCall.name === "getAllOrders") {
-                    toolResult = await functions.getAllOrders();
+                    toolResult = await functions.getAllOrders(args.phoneNo);
                 } else if (functionCall.name === "getOrderById") {
                     toolResult = await functions.getOrderById(args.orderId);
+                } else if (functionCall.name === "checkOrderCancellable") {
+                    console.log("checking cancelable")
+                    console.log("cancel order")
+                    const options = {
+                        reason: args.reason || "OTHER",
+                        email: args.email !== undefined ? args.email : true,
+                        refund: args.refund !== undefined ? args.refund : true,
+                        restock: args.restock !== undefined ? args.restock : true
+                    };
+                    toolResult = await functions.cancelOrder(args.orderId, options);
+                } else if (functionCall.name === "cancelOrder") {
+                    console.log("cancel order")
+                    const options = {
+                        reason: args.reason || "OTHER",
+                        email: args.email !== undefined ? args.email : true,
+                        refund: args.refund !== undefined ? args.refund : true,
+                        restock: args.restock !== undefined ? args.restock : true
+                    };
+                    toolResult = await functions.cancelOrder(args.orderId, options);
+                } else if (functionCall.name === "hangUp") {
+                    toolResult = await functions.endCall(session.room);
                 } else {
                     toolResult = { error: "Unknown function requested." };
                 }
@@ -1865,13 +2259,21 @@ const setChannel = (connection, session, channel) => {
             channel: channel,
             connection: connection
         });
+        let user = userStorage.findUser(session.name)
+        console.log("user:", user)
         let prompt = `
 Hey You are an Agent who can communicate through many channels using the variable output_channel in your response.
 The communication channels are: ${session.availableChannel.map(c => c.channel).join(", ")}
 There is the system who will inform you the user actions.
+You have the ability hungUp the call.
 
 ## This is the User Prompt:
 ${session.prompt}
+
+## User Data:
+Name: ${user.Name}
+Email: ${user.Email}
+Phone No: ${user.Phone}
 
 ## Output Format:
 Respond with ONLY a valid JSON object in this exact format:
@@ -1883,9 +2285,9 @@ Respond with ONLY a valid JSON object in this exact format:
 - Your response MUST be valid JSON and parsable.
 
 ## Example Output:
-If the user ask For an SMS then Set the channel to the sms:
-{"response": "Your response", "output_channel": "sms"}
-If the user ask for any other channel then send my that channel:
+If the user ask For an SMS then use the channel sms to send the sms:
+{"response": "SMS Contents", "output_channel": "sms"}
+If the user ask for any other channel then send by that channel:
 {"response": "Your response", "output_channel": "other_channel"}
 Remember, output must be STRICTLY JSON only.
 `;
@@ -1918,7 +2320,7 @@ async function sendSMS(to, message, session, input_channel) {
         });
 
         console.log('SMS sent successfully:', sms.sid);
-        sendSystemMessage(session, `message sent successfully to the user`, input_channel);
+        sendSystemMessage(session, `This message : "${message}" was sent successfully to the user tell the user that you have sent the message.`, input_channel);
         return sms;
     } catch (error) {
         console.error('Error sending SMS:', error);
@@ -1963,7 +2365,6 @@ const sendSystemMessage = async (session, message, channel) => {
 
     await handleOutput(session, processedText, outputType, channel);
 }
-
 
 
 
@@ -2027,8 +2428,9 @@ app.post('/create-room', async (req, res) => {
         });
 
         // 3. Create session for this room
-        const session = sessionManager.createSession(room, userData, prompt, tool);
+        const session = sessionManager.createSession(roomName, userData, prompt, tool);
         setChannel(room, session, "audio")
+        session.caller = userData;
 
         // 4. Set up room event handlers
         setupRoomEventHandlers(room, session);
@@ -2880,7 +3282,7 @@ wss.on('connection', (ws, req) => {
                 sessionId = session.id;
                 session.callSid = parsedData.start?.callSid;
                 session.streamSid = parsedData?.streamSid; // Confirm streamSid in session
-                session.caller = parsedData.start?.customParameters?.caller;
+                session.caller = parsedData.start?.customParameters?.caller || userData;
                 setChannel(ws, session, "audio")
                 sendSystemMessage(session, `${session.name} have joined via PhoneCall`, "audio");
 
