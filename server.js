@@ -1822,16 +1822,6 @@ const aiProcessing = {
                     toolResult = await functions.getAllOrders(args.phoneNo);
                 } else if (functionCall.name === "getOrderById") {
                     toolResult = await functions.getOrderById(args.orderId);
-                } else if (functionCall.name === "checkOrderCancellable") {
-                    console.log("checking cancelable")
-                    console.log("cancel order")
-                    const options = {
-                        reason: args.reason || "OTHER",
-                        email: args.email !== undefined ? args.email : true,
-                        refund: args.refund !== undefined ? args.refund : true,
-                        restock: args.restock !== undefined ? args.restock : true
-                    };
-                    toolResult = await functions.cancelOrder(args.orderId, options);
                 } else if (functionCall.name === "cancelOrder") {
                     console.log("cancel order")
                     const options = {
