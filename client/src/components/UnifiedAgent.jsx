@@ -645,7 +645,7 @@ const UnifiedAgent = () => {
                                         )}
                                     </div>
                                     {isUser && (
-                                        <div className="ml-3 mt-1 shrink-0 rounded-full bg-blue-600/20 border border-blue-500/30 p-2">
+                                        <div className="ml-3 mt-1 h-fit shrink-0 rounded-full bg-blue-600/20 border border-blue-500/30 p-2">
                                             <User className="w-4 h-4 text-blue-300" />
                                         </div>
                                     )}
