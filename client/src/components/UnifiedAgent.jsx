@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Settings, MessageCircle, Copy, Check, User, Bot } from 'lucide-react';
+import { Settings, MessageCircle, Copy, Check, User, Bot, Search, X, Loader2, Mic } from 'lucide-react';
 import { Room, RoomEvent } from 'livekit-client';
 import { AVAILABLE_FUNCTIONS } from '../utils/tools';
 
@@ -36,6 +36,8 @@ const UnifiedAgent = () => {
     const [sessionId, setSessionId] = useState(null);
     const chatEndRef = useRef(null);
     const [copiedIndex, setCopiedIndex] = useState(null);
+    const [toolFilter, setToolFilter] = useState('');
+    const [activeTab, setActiveTab] = useState('basic'); // 'basic' | 'tools'
 
     useEffect(() => {
         return () => {
@@ -43,6 +45,36 @@ const UnifiedAgent = () => {
             if (wsRef.current) wsRef.current.close();
         };
     }, [room]);
+
+    // Load persisted config on first mount
+    useEffect(() => {
+        try {
+            const storedUser = localStorage.getItem('agent.selectedPhone');
+            const storedPrompt = localStorage.getItem('agent.prompt');
+            const storedTools = localStorage.getItem('agent.tools');
+            if (storedUser) setSelectedPhone(storedUser);
+            if (storedPrompt) setEditingPrompt(storedPrompt);
+            if (storedTools) {
+                const names = JSON.parse(storedTools);
+                const restored = AVAILABLE_FUNCTIONS.filter(f => names.includes(f.name));
+                if (restored.length) setSelectedFunction(restored);
+            }
+        } catch {
+            // ignore
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Persist config on change
+    useEffect(() => {
+        try {
+            localStorage.setItem('agent.selectedPhone', selectedPhone || '');
+            localStorage.setItem('agent.prompt', editingPrompt || '');
+            localStorage.setItem('agent.tools', JSON.stringify(selectedFunction.map(f => f.name)));
+        } catch {
+            // ignore
+        }
+    }, [selectedPhone, editingPrompt, selectedFunction]);
 
     const handleFunctionInput = (e) => {
         const { value, checked } = e.target;
@@ -351,123 +383,204 @@ const UnifiedAgent = () => {
             'You are a Shopify order assistant. Help with order status and cancellations.',
         ];
 
-        const isAllSelected = AVAILABLE_FUNCTIONS.every((f) => selectedFunction.includes(f));
+        const filteredFunctions = AVAILABLE_FUNCTIONS.filter((f) =>
+            f.name.toLowerCase().includes(toolFilter.toLowerCase()) ||
+            (f.description || '').toLowerCase().includes(toolFilter.toLowerCase())
+        );
+
+        const isAllSelected = filteredFunctions.length > 0 && filteredFunctions.every((f) => selectedFunction.includes(f));
         const toggleAllFunctions = () => {
             if (isAllSelected) {
-                setSelectedFunction([]);
+                setSelectedFunction(prev => prev.filter(f => !filteredFunctions.includes(f)));
             } else {
-                setSelectedFunction(AVAILABLE_FUNCTIONS.slice());
+                setSelectedFunction(prev => {
+                    const set = new Set(prev);
+                    filteredFunctions.forEach(f => set.add(f));
+                    return Array.from(set);
+                });
             }
         };
 
+        const removeSelectedTool = (tool) => {
+            setSelectedFunction(prev => prev.filter(f => f !== tool));
+        };
+
         return (
-            <div className="min-h-screen min-w-screen bg-black text-white px-4 py-6 flex flex-col items-center">
-                <div className="w-full max-w-5xl bg-gradient-to-b from-white/5 to-transparent rounded-2xl border border-white/10 p-6 md:p-8">
-                    <div className="text-center mb-6">
-                        <div className="inline-flex items-center gap-2 text-sm text-gray-300">
-                            <Settings className="w-4 h-4" />
-                            Setup
+            <div className="min-h-screen min-w-screen bg-black text-white px-4 py-6 justify-center flex items-center">
+                <div className="mx-auto w-full max-w-6xl grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Left hero */}
+                    <div className="hidden md:flex flex-col items-center justify-center rounded-2xl border border-white/10 bg-gradient-to-b from-white/5 to-transparent p-8">
+                        <div className="orb-float mb-6">
+                            <img src="/Ai Image.png" alt="AI Orb" className="orb-img" />
                         </div>
-                        <h1 className="mt-2 text-2xl md:text-3xl font-semibold">Configure your AI session</h1>
-                        <p className="mt-2 text-sm text-gray-400">Pick a user, refine the system prompt, and choose tools. Then join via Audio or Chat.</p>
+                        <h2 className="text-2xl font-semibold">Design your agent</h2>
+                        <p className="mt-2 text-sm text-gray-400 text-center">
+                            Choose the user, craft the system prompt, and enable the tools you need. Then join via audio or chat.
+                        </p>
+                        <div className="mt-4 flex flex-wrap justify-center gap-2 text-xs">
+                            <span className="px-3 py-1 rounded-full bg-white/10 border border-white/10">Real‑time audio</span>
+                            <span className="px-3 py-1 rounded-full bg-white/10 border border-white/10">Function calling</span>
+                            <span className="px-3 py-1 rounded-full bg-white/10 border border-white/10">Context prompts</span>
+                        </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {/* User */}
-                        <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                            <div className="text-sm font-medium text-gray-300 mb-2">User</div>
-                            <select
-                                value={selectedPhone}
-                                onChange={(e) => setSelectedPhone(e.target.value)}
-                                className="w-full px-3 py-2 bg-black/60 border border-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    {/* Right: tabbed config card */}
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+                        {/* Tabs */}
+                        <div className="flex items-center gap-2 text-sm mb-4">
+                            <button
+                                onClick={() => setActiveTab('basic')}
+                                className={`px-3 py-1.5 rounded-lg border ${activeTab === 'basic' ? 'bg-blue-600 border-blue-500' : 'bg-black/40 border-white/10'} hover:bg-white/10`}
+                                type="button"
                             >
-                                <option value="" className="bg-black text-white">Unknown</option>
-                                <option value="+919313552680" className="bg-black text-white">Shubhanshu</option>
-                                <option value="+919512467691" className="bg-black text-white">Ankit C</option>
-                                <option value="+918780899485" className="bg-black text-white">Abhinav</option>
-                            </select>
+                                Basics
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('tools')}
+                                className={`px-3 py-1.5 rounded-lg border ${activeTab === 'tools' ? 'bg-blue-600 border-blue-500' : 'bg-black/40 border-white/10'} hover:bg-white/10`}
+                                type="button"
+                            >
+                                Tools
+                            </button>
                         </div>
 
-                        {/* Prompt */}
-                        <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                            <div className="flex items-center justify-between mb-2">
-                                <div className="text-sm font-medium text-gray-300">System Prompt</div>
-                                <div className="text-xs text-gray-500">{editingPrompt.length} chars</div>
-                            </div>
-                            <textarea
-                                value={editingPrompt}
-                                onChange={(e) => setEditingPrompt(e.target.value)}
-                                placeholder="Enter your system prompt here..."
-                                className="w-full text-sm h-28 p-3 bg-black/60 border border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                            <div className="mt-3 flex flex-wrap gap-2">
-                                {samplePrompts.map((sp, i) => (
-                                    <button
-                                        key={i}
-                                        onClick={() => setEditingPrompt(sp)}
-                                        className="text-xs px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 border border-white/10"
-                                        type="button"
+                        {/* Basics */}
+                        {activeTab === 'basic' && (
+                            <div className="space-y-5">
+                                <div>
+                                    <div className="text-sm font-medium text-gray-300 mb-2">User</div>
+                                    <select
+                                        value={selectedPhone}
+                                        onChange={(e) => setSelectedPhone(e.target.value)}
+                                        className="w-full px-3 py-2 bg-black/60 border border-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                                     >
-                                        {sp}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
+                                        <option value="" className="bg-black text-white">Unknown</option>
+                                        <option value="+919313552680" className="bg-black text-white">Shubhanshu</option>
+                                        <option value="+919512467691" className="bg-black text-white">Ankit C</option>
+                                        <option value="+918780899485" className="bg-black text-white">Abhinav</option>
+                                    </select>
+                                </div>
 
-                    {/* Tools */}
-                    <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-4">
-                        <div className="flex items-center justify-between mb-3">
-                            <div className="text-sm font-medium text-gray-300">Available Functions</div>
-                            <div className="flex items-center gap-3 text-xs text-gray-400">
-                                <span>{selectedFunction.length} selected</span>
-                                <button onClick={toggleAllFunctions} className="px-3 py-1 rounded-full bg-black/60 border border-white/10 hover:bg-black/40">
-                                    {isAllSelected ? 'Clear all' : 'Select all'}
-                                </button>
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {AVAILABLE_FUNCTIONS.map((func, index) => {
-                                const checked = selectedFunction.includes(func);
-                                return (
-                                    <label key={index} className={`group cursor-pointer rounded-lg border p-3 transition-colors ${checked ? 'border-blue-500/40 bg-blue-500/5' : 'border-white/10 bg-black/40'} hover:bg-white/10`}>
-                                        <div className="flex items-start gap-3">
-                                            <input
-                                                type="checkbox"
-                                                value={index}
-                                                onChange={handleFunctionInput}
-                                                checked={checked}
-                                                className="mt-1 w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded"
-                                            />
+                                <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <div className="text-sm font-medium text-gray-300">System Prompt</div>
+                                        <div className="text-xs text-gray-500">{editingPrompt.length} chars</div>
+                                    </div>
+                                    <textarea
+                                        value={editingPrompt}
+                                        onChange={(e) => setEditingPrompt(e.target.value)}
+                                        placeholder="Enter your system prompt here..."
+                                        className="w-full text-sm h-32 p-3 bg-black/60 border border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    />
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                        {samplePrompts.map((sp, i) => (
+                                            <button
+                                                key={i}
+                                                onClick={() => setEditingPrompt(sp)}
+                                                className="text-xs px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 border border-white/10"
+                                                type="button"
+                                            >
+                                                {sp}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Join cards */}
+                                <div className="grid grid-cols-2 gap-3 pt-2">
+                                    <button
+                                        onClick={joinAudio}
+                                        disabled={isLoading}
+                                        className="group rounded-xl border border-white/10 bg-black/40 hover:bg-white/10 p-4 text-left disabled:opacity-60"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className="rounded-lg p-2 bg-white/10 border border-white/10">
+                                                <Mic className="w-5 h-5" />
+                                            </div>
                                             <div>
-                                                <div className="font-medium text-gray-200">{func.name}</div>
-                                                {func.description && (
-                                                    <div className="text-xs text-gray-400 mt-1">{func.description}</div>
-                                                )}
+                                                <div className="font-semibold">Join via Audio</div>
+                                                <div className="text-xs text-gray-400">Real-time voice with LiveKit</div>
                                             </div>
                                         </div>
-                                    </label>
-                                );
-                            })}
-                        </div>
-                    </div>
+                                    </button>
+                                    <button
+                                        onClick={joinChat}
+                                        disabled={isLoading}
+                                        className="group rounded-xl border border-white/10 bg-black/40 hover:bg-white/10 p-4 text-left disabled:opacity-60"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className="rounded-lg p-2 bg-white/10 border border-white/10">
+                                                <MessageCircle className="w-5 h-5" />
+                                            </div>
+                                            <div>
+                                                <div className="font-semibold">Join via Chat</div>
+                                                <div className="text-xs text-gray-400">WebSocket text conversation</div>
+                                            </div>
+                                        </div>
+                                    </button>
+                                </div>
+                            </div>
+                        )}
 
-                    {/* Actions */}
-                    <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
-                        <button
-                            onClick={joinAudio}
-                            disabled={isLoading}
-                            className="w-full sm:w-auto min-w-[160px] flex items-center justify-center gap-2 bg-white text-black hover:bg-gray-300 px-6 py-3 rounded-xl font-semibold"
-                        >
-                            {isLoading ? 'Joining…' : 'Join via Audio'}
-                        </button>
-                        <button
-                            onClick={joinChat}
-                            disabled={isLoading}
-                            className="w-full sm:w-auto min-w-[160px] flex items-center justify-center gap-2 bg-blue-600 text-white hover:bg-blue-700 px-6 py-3 rounded-xl font-semibold"
-                        >
-                            {isLoading ? 'Joining…' : 'Join via Chat'}
-                        </button>
+                        {/* Tools */}
+                        {activeTab === 'tools' && (
+                            <div>
+                                <div className="flex items-center justify-between mb-3">
+                                    <div className="text-sm font-medium text-gray-300">Available Functions</div>
+                                    <div className="flex items-center gap-3 text-xs text-gray-400">
+                                        <div className="relative">
+                                            <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2 top-2.5" />
+                                            <input
+                                                value={toolFilter}
+                                                onChange={(e) => setToolFilter(e.target.value)}
+                                                placeholder="Search tools"
+                                                className="pl-7 pr-2 py-1.5 rounded-lg bg-black/60 border border-white/10 text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                            />
+                                        </div>
+                                        <span>{selectedFunction.length} selected</span>
+                                        <button onClick={toggleAllFunctions} className="px-3 py-1 rounded-full bg-black/60 border border-white/10 hover:bg-black/40">
+                                            {isAllSelected ? 'Clear all' : 'Select all'}
+                                        </button>
+                                    </div>
+                                </div>
+                                {selectedFunction.length > 0 && (
+                                    <div className="mb-3 flex flex-wrap gap-2">
+                                        {selectedFunction.map((tool) => (
+                                            <span key={tool.name} className="inline-flex items-center gap-1 text-xs px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-300">
+                                                {tool.name}
+                                                <button onClick={() => removeSelectedTool(tool)} className="hover:text-white" title="Remove">
+                                                    <X className="w-3.5 h-3.5" />
+                                                </button>
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    {filteredFunctions.map((func, index) => {
+                                        const checked = selectedFunction.includes(func);
+                                        return (
+                                            <label key={index} className={`group cursor-pointer rounded-lg border p-3 transition-colors ${checked ? 'border-blue-500/40 bg-blue-500/5' : 'border-white/10 bg-black/40'} hover:bg-white/10`}>
+                                                <div className="flex items-start gap-3">
+                                                    <input
+                                                        type="checkbox"
+                                                        value={AVAILABLE_FUNCTIONS.indexOf(func)}
+                                                        onChange={handleFunctionInput}
+                                                        checked={checked}
+                                                        className="mt-1 w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded"
+                                                    />
+                                                    <div>
+                                                        <div className="font-medium text-gray-200">{func.name}</div>
+                                                        {func.description && (
+                                                            <div className="text-xs text-gray-400 mt-1">{func.description}</div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </label>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

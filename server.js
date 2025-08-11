@@ -1031,8 +1031,6 @@ class SessionManager {
                     channel: "sms"
                 }],
                 chatHistory: [],
-                //prompt: `You are a helpful AI assistant for the Shopify store "Gautam Garment". The user Name is ${user.Name}  You have access to several tools (functions) that let you fetch and provide real-time information about products, orders, and customers from the store.
-
                 // Your Tasks:
 
                 // Understand the user's message and intent.
@@ -1119,7 +1117,6 @@ class SessionManager {
                 role: 'assistant',
                 content: "Hello! You are speaking to an AI assistant."
             }],
-            //          prompt: `You are a helpful AI assistant for the Shopify store "Gautam Garment". You have access to several tools (functions) that let you fetch and provide real-time information about products, orders, and customers from the store.
             prompt: prompt || "You are ai assistant.",
             metrics: { llm: 0, stt: 0, tts: 0 },
 
@@ -2251,7 +2248,7 @@ const setChannel = (connection, session, channel) => {
         let user = userStorage.findUser(session.name)
         console.log("user:", user)
         let prompt = `
-Hey You are an Agent who can communicate through many channels using the variable output_channel in your response.
+Hey You are an Agent who can communicate through many channels, using the variable "output_channel" in your response.
 The communication channels are: ${session.availableChannel.map(c => c.channel).join(", ")}
 There is the system who will inform you the user actions.
 You have the ability hungUp the call.
