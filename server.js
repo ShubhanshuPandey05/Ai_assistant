@@ -2260,9 +2260,9 @@ You have the ability hungUp the call.
 ${session.prompt}
 
 ## User Data:
-Name: ${user.Name}
+${user?`Name: ${user.Name}
 Email: ${user.Email}
-Phone No: ${user.Phone}
+Phone No: ${user.Phone}s`:"This is the Temp User"}
 
 ## Output Format:
 Respond with ONLY a valid JSON object in this exact format:

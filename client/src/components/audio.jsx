@@ -357,6 +357,7 @@ const Audio = () => {
     <div className="min-h-screen min-w-screen bg-black from-gray-900 to-gray-800 text-white flex md:flex-row flex-col justify-center items-center align-center overflow-y-hidden container">
       <div className='w-full md:w-1/2 h-screen border-r-0 md:border-r-2 border-b-1 md:border-b-0 border-white p-5 md:p-8 overflow-y-auto page'>
         <div className='text-2xl font-bold text-center'>Make a Web Call</div>
+        <img src="./Ai Image.webp" alt="" className='' />
         {
           !isConnected ? (
             <div className="p-6 max-w-md mx-auto bg-black rounded-lg shadow-md">
@@ -370,7 +371,7 @@ const Audio = () => {
                 >
                   {/* <option value="">-- Please select --</option> */}
                   <option value="" className="bg-black text-white">Unknown</option>
-                  <option value="+919313562780" className="bg-black text-white">Shubhanshu</option>
+                  <option value="+919313552680" className="bg-black text-white">Shubhanshu</option>
                   <option value="+919512467691" className="bg-black text-white">Ankit C</option>
                   <option value="+918780899485" className="bg-black text-white">Abhinav</option>
                 </select>
@@ -380,7 +381,7 @@ const Audio = () => {
                 <div className="mt-4 p-3 bg-gray-900 rounded-md">
                   <p className="text-sm text-white">
                     Selected: <span className="font-semibold">{
-                      selectedPhone === '+919313562780' ? 'Shubhanshu' :
+                      selectedPhone === '+919313552680' ? 'Shubhanshu' :
                         selectedPhone === '+918780899485' ? 'Abhinav' :
                           selectedPhone === '+919512467691' ? 'Ankit C' :
                             'Unknown'

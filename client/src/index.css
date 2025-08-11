@@ -1,0 +1,70 @@
+/* Minimal global styles for the unified agent */
+
+.ai-glow-circle {
+  width: 200px;
+  height: 200px;
+  background-color: #1b1a2e;
+  border-radius: 50%;
+  box-shadow:
+    0 0 40px 10px #a29bfe,
+    0 0 70px 25px #74b9ff,
+    0 0 100px 40px #55efc4;
+}
+
+/* Animated floating orb using the provided image */
+.orb-float {
+  width: 260px;
+  height: 260px;
+  display: grid;
+  place-items: center;
+  /* filter: drop-shadow(0 0 20px rgba(164, 156, 255, 0.4)) drop-shadow(0 0 40px rgba(85, 239, 196, 0.15)); */
+  animation: spin 20s linear infinite;
+}
+
+.orb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  transition: transform 300ms ease, filter 300ms ease;
+}
+
+/* Ambient speaking pulse */
+.orb-speaking {
+  animation: orb-pulse 1.2s ease-in-out infinite;
+  /* filter: drop-shadow(0 0 25px rgba(116, 185, 255, 0.7)) drop-shadow(0 0 55px rgba(85, 239, 196, 0.4)); */
+}
+
+/* @keyframes orb-bob {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-12px); }
+} */
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+    filter: drop-shadow(0 0 30px rgba(164, 156, 255, 0.4)) drop-shadow(0 0 40px rgba(85, 239, 196, 0.15));
+  }
+
+  to {
+    transform: rotate(360deg);
+    filter: drop-shadow(0 0 30px rgba(164, 156, 255, 0.4)) drop-shadow(0 0 40px rgba(85, 239, 196, 0.15));
+
+  }
+}
+
+@keyframes orb-pulse {
+  0% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 50px rgba(116, 185, 255, 0.7)) drop-shadow(0 0 55px rgba(85, 239, 196, 0.4));
+  }
+
+  50% {
+    transform: scale(1.06);
+    filter: drop-shadow(0 0 25px rgba(116, 185, 255, 0.7)) drop-shadow(0 0 55px rgba(85, 239, 196, 0.4));
+  }
+
+  100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 50px rgba(116, 185, 255, 0.7)) drop-shadow(0 0 55px rgba(85, 239, 196, 0.4));
+  }
+}

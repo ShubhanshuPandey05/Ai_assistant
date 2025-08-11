@@ -278,7 +278,7 @@ const Chat = () => {
               >
                 {/* <option value="">-- Please select --</option> */}
                 <option value="" className="bg-black text-white">Unknown</option>
-                <option value="+919313562780" className="bg-black text-white">Shubhanshu</option>
+                <option value="+919313552680" className="bg-black text-white">Shubhanshu</option>
                 <option value="+919512467691" className="bg-black text-white">Ankit C</option>
                 <option value="+918780899485" className="bg-black text-white">Abhinav</option>
               </select>
@@ -288,7 +288,7 @@ const Chat = () => {
               <div className="mt-4 p-3 bg-gray-900 rounded-md">
                 <p className="text-sm text-white">
                   Selected: <span className="font-semibold">{
-                    selectedPhone === '+919313562780' ? 'Shubhanshu' :
+                    selectedPhone === '+919313552680' ? 'Shubhanshu' :
                       selectedPhone === '+918780899485' ? 'Abhinav' :
                         selectedPhone === '+919512467691' ? 'Ankit C' :
                           'Unknown'

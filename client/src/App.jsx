@@ -1,16 +1,7 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
-import Chat from './components/chat'
-import Audio from './components/audio'
+import UnifiedAgent from './components/UnifiedAgent'
 
 function App() {
-  return (
-    <Router>
-      <Routes>
-        <Route path='/' element={<Audio />} />
-        <Route path='/chat' element={<Chat/>} />
-      </Routes>
-    </Router>
-  )
+  return <UnifiedAgent />
 }
 
 export default App

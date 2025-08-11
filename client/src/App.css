@@ -18,3 +18,42 @@ html, body {
     color: white;
   }
   
+  /* Style the main page for a dark background */
+body {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  background-color: #100f1c; /* A deep, dark blue-purple */
+  margin: 0;
+}
+
+/* Style the circle itself */
+/* 1. Define the animation keyframes */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 2. Create a class to apply the animation */
+.image-spin {
+  animation: spin 3s linear infinite; /* name duration timing-function iteration-count */
+}
+/* 1. Define the animation keyframes */
+@keyframes wobble {
+  0%, 100% {
+    transform: rotate(-5deg);
+  }
+  50% {
+    transform: rotate(5deg);
+  }
+}
+
+/* 2. Create a class to apply the animation */
+.image-wobble {
+  animation: wobble 1s ease-in-out infinite;
+}
