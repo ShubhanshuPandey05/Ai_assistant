@@ -72,7 +72,8 @@ const selectDarkStyles = {
         ...base,
         backgroundColor: '#0b0b0b',
         border: '1px solid rgba(255,255,255,0.1)',
-        zIndex: 9999
+        zIndex: 9999,
+        width: '100%'
     }),
     option: (base, state) => ({
         ...base,
@@ -179,7 +180,7 @@ const UnifiedAgent = () => {
                 body: JSON.stringify({ to: fullNumber })
             });
             // ignore response body; best-effort trigger
-            try { await response.json(); } catch {}
+            try { await response.json(); } catch { }
             setCallInput('');
         } catch {
             // ignore errors for now
@@ -336,72 +337,72 @@ const UnifiedAgent = () => {
         }
     };
 
-      const setupAmbientDetection = (audioEl) => {
+    const setupAmbientDetection = (audioEl) => {
         try {
-          if (!audioEl) return;
-          if (!audioCtxRef.current) {
-            audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
-          }
+            if (!audioEl) return;
+            if (!audioCtxRef.current) {
+                audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+            }
 
-      const ctx = audioCtxRef.current;
-      // Keep analyser state unique per setup
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 1024;
-      analyser.smoothingTimeConstant = 0.85;
-      analyserRef.current = analyser;
+            const ctx = audioCtxRef.current;
+            // Keep analyser state unique per setup
+            const analyser = ctx.createAnalyser();
+            analyser.fftSize = 1024;
+            analyser.smoothingTimeConstant = 0.85;
+            analyserRef.current = analyser;
 
-      // Prefer connecting the underlying MediaStream to the analyser
-      const source = ctx.createMediaStreamSource(audioEl);
-      source.connect(analyser);
+            // Prefer connecting the underlying MediaStream to the analyser
+            const source = ctx.createMediaStreamSource(audioEl);
+            source.connect(analyser);
 
-      const data = new Uint8Array(analyser.fftSize);
-      // Hysteresis thresholds using RMS on time-domain signal
-      const speakOn = 4;  // increase to be less sensitive
-      const speakOff = 2;  // lower than speakOn to avoid flicker
-      let speaking = false;
-      let aboveCount = 0;
-      let belowCount = 0;
+            const data = new Uint8Array(analyser.fftSize);
+            // Hysteresis thresholds using RMS on time-domain signal
+            const speakOn = 4;  // increase to be less sensitive
+            const speakOff = 2;  // lower than speakOn to avoid flicker
+            let speaking = false;
+            let aboveCount = 0;
+            let belowCount = 0;
 
-      const tick = () => {
-        analyser.getByteTimeDomainData(data);
-        // Compute RMS of AC component centered around 128
-        let sumSquares = 0;
-        for (let i = 0; i < data.length; i++) {
-          const centered = data[i] - 128;
-          sumSquares += centered * centered;
-        }
-        const rms = Math.sqrt(sumSquares / data.length);
-        const level = (rms / 128) * 100; // approx 0-100 scale
+            const tick = () => {
+                analyser.getByteTimeDomainData(data);
+                // Compute RMS of AC component centered around 128
+                let sumSquares = 0;
+                for (let i = 0; i < data.length; i++) {
+                    const centered = data[i] - 128;
+                    sumSquares += centered * centered;
+                }
+                const rms = Math.sqrt(sumSquares / data.length);
+                const level = (rms / 128) * 100; // approx 0-100 scale
 
-        if (level > speakOn) {
-          aboveCount += 1;
-          belowCount = 0;
-        } else if (level < speakOff) {
-          belowCount += 1;
-          aboveCount = 0;
-        }
+                if (level > speakOn) {
+                    aboveCount += 1;
+                    belowCount = 0;
+                } else if (level < speakOff) {
+                    belowCount += 1;
+                    aboveCount = 0;
+                }
 
-        const minFrames = 3;
-        if (!speaking && aboveCount >= minFrames) {
-          speaking = true;
-          setIsSpeaking(true);
-        } else if (speaking && belowCount >= minFrames + 2) {
-          speaking = false;
-          setIsSpeaking(false);
-        }
+                const minFrames = 3;
+                if (!speaking && aboveCount >= minFrames) {
+                    speaking = true;
+                    setIsSpeaking(true);
+                } else if (speaking && belowCount >= minFrames + 2) {
+                    speaking = false;
+                    setIsSpeaking(false);
+                }
 
-        rafRef.current = requestAnimationFrame(tick);
-      };
-      // Always start a new loop for a fresh stream
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      if (ctx.state === 'suspended') {
-        ctx.resume().catch(() => {});
-      }
-      rafRef.current = requestAnimationFrame(tick);
+                rafRef.current = requestAnimationFrame(tick);
+            };
+            // Always start a new loop for a fresh stream
+            if (rafRef.current) cancelAnimationFrame(rafRef.current);
+            if (ctx.state === 'suspended') {
+                ctx.resume().catch(() => { });
+            }
+            rafRef.current = requestAnimationFrame(tick);
         } catch (e) {
-          // ignore analyser setup failures
+            // ignore analyser setup failures
         }
-      };
+    };
 
     const handleMicToggle = async () => {
         if (!room) return;
@@ -637,30 +638,35 @@ const UnifiedAgent = () => {
                                     </button>
                                 </div>
                                 {/* Phone call inline input */}
-                                <div className="mt-3 flex items-center gap-2 flex-wrap sm:flex-nowrap">
-                                    <Select
-                                        options={options}
-                                        aria-label="Country code"
-                                        value={options.find(o => o.value === countryCode)}
-                                        onChange={(opt) => setCountryCode(opt?.value || 'IN')}
-                                        className="min-w-[5rem] sm:min-w-[8rem]"
-                                        classNamePrefix="country"
-                                        isSearchable={false}
-                                        menuPortalTarget={typeof document !== 'undefined' ? document.body : undefined}
-                                        styles={selectDarkStyles}
-                                    />
-                                    <input
-                                        type="tel"
-                                        inputMode="tel"
-                                        value={callInput}
-                                        onChange={handleCallInput}
-                                        placeholder="Enter phone number"
-                                        className="flex-1 min-w-[8rem] px-3 py-2 bg-black/60 border border-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-500"
-                                    />
+                                <div className="mt-3 grid grid-cols-2 gap-2 items-stretch sm:flex sm:flex-row">
+                                    <div className='flex justify-center items-center w-full flex-wrap col-span-2 space-x-2'>
+                                        <Select
+                                            options={options}
+                                            aria-label="Country code"
+                                            value={options.find(o => o.value === countryCode)}
+                                            onChange={(opt) => setCountryCode(opt?.value || 'IN')}
+                                            className="w-[41%] sm:w-auto sm:min-w-[8rem]"
+                                            classNamePrefix="country"
+                                            isSearchable={false}
+                                            menuPortalTarget={typeof document !== 'undefined' ? document.body : undefined}
+                                            styles={selectDarkStyles}
+                                            menuPlacement="auto"
+                                            menuPosition="fixed"
+                                            menuShouldScrollIntoView
+                                        />
+                                        <input
+                                            type="tel"
+                                            inputMode="tel"
+                                            value={callInput}
+                                            onChange={handleCallInput}
+                                            placeholder="Enter phone number"
+                                            className="w-[56%] sm:flex-1 min-w-0 px-3 py-2 bg-black/60 border border-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-500"
+                                        />
+                                    </div>
                                     <button
                                         onClick={handleCall}
                                         disabled={!callInput.trim() || isCalling}
-                                        className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-lg font-semibold bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed w-full sm:w-auto"
+                                        className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-lg font-semibold bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed w-full sm:w-auto col-span-2"
                                         type="button"
                                     >
                                         <PhoneCall className="w-4 h-4" />
