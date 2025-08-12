@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Settings, MessageCircle, Copy, Check, User, Bot, Search, X, Loader2, Mic, PhoneCall } from 'lucide-react';
+import { Settings, MessageCircle, Copy, Check, User, Bot, Search, X, Loader2, Mic, MicOff, PhoneCall, PhoneOff } from 'lucide-react';
 import { Room, RoomEvent } from 'livekit-client';
 import { AVAILABLE_FUNCTIONS } from '../utils/tools';
 import Select from 'react-select';
@@ -190,15 +190,19 @@ const UnifiedAgent = () => {
     };
 
     const joinAudio = async () => {
+        setIsLoading(true);
+        await connectAudio();
+        setIsLoading(false);
         setMode('audio');
         setStep('session');
-        await connectAudio();
     };
 
     const joinChat = async () => {
+        setIsLoading(true);
+        await connectChat();
+        setIsLoading(false);
         setMode('chat');
         setStep('session');
-        await connectChat();
     };
 
     // Audio connect
@@ -235,6 +239,7 @@ const UnifiedAgent = () => {
             await livekitRoom.connect(LIVEKIT_URL, payload.token, { autoSubscribe: true });
             setRoom(livekitRoom);
             setIsConnected(true);
+            setIsLoading(false);
 
             livekitRoom.on(RoomEvent.DataReceived, handleDataReceived);
             livekitRoom.on(RoomEvent.TrackSubscribed, handleTrackSubscribed);
@@ -246,8 +251,9 @@ const UnifiedAgent = () => {
         } catch (err) {
             console.error(err);
             setError('Failed to connect: ' + (err?.message || 'Unknown error'));
-        } finally {
             setIsLoading(false);
+        } finally {
+            // no-op, handled above
         }
     };
 
@@ -275,25 +281,30 @@ const UnifiedAgent = () => {
                     setIsConnected(true);
                     if (data.type === 'session_started') {
                         setSessionId(data.sessionId);
+                        setIsLoading(false);
                     } else if (data.type === 'text' || data.type === 'text_response') {
                         setChatMessages((prev) => [...prev, { role: 'assistant', content: data.media?.payload ?? '' }]);
                     } else if (data.type === 'current_prompt') {
                         setEditingPrompt(data.prompt);
                     } else if (data.error) {
                         setError(data.error);
+                        setIsLoading(false);
                     }
                 } catch (err) {
                     setError('Error parsing server response');
+                    setIsLoading(false);
                 }
             };
 
             wsRef.current.onerror = (e) => {
                 console.error('WebSocket error', e);
                 setError('WebSocket connection error');
+                setIsLoading(false);
             };
             wsRef.current.onclose = () => {
                 setIsConnected(false);
                 setSessionId(null);
+                setIsLoading(false);
             };
         } catch (err) {
             console.error(err);
@@ -543,7 +554,15 @@ const UnifiedAgent = () => {
                     </div>
 
                     {/* Right: tabbed config card */}
-                    <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+                    <div className="relative rounded-2xl border border-white/10 bg-white/5 p-6">
+                        {isLoading && (
+                            <div className="absolute inset-0 z-20 flex items-center justify-center rounded-2xl backdrop-blur-sm bg-black/40">
+                                <div className="flex items-center gap-3 text-gray-200">
+                                    <Loader2 className="w-5 h-5 animate-spin" />
+                                    <span className="text-sm">Preparing session…</span>
+                                </div>
+                            </div>
+                        )}
                         {/* Tabs */}
                         <div className="flex items-center gap-2 text-sm mb-4">
                             <button
@@ -755,11 +774,24 @@ const UnifiedAgent = () => {
                     <img src="/Ai Image.png" alt="AI Orb" />
                 </div>
                 <audio ref={audioRef} autoPlay />
-                <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto px-4 sm:px-0">
-                    <button onClick={handleMicToggle} className={`w-full sm:w-auto px-6 py-2 rounded-full font-semibold shadow ${isMicOn ? 'bg-white text-black hover:bg-gray-300' : 'bg-black text-white border-2 hover:bg-gray-900'}`}>
-                        {isMicOn ? 'Stop Mic' : 'Start Mic'}
+                <div className="flex items-center gap-3 px-4 sm:px-0">
+                    <button
+                        onClick={handleMicToggle}
+                        title={isMicOn ? 'Start mic' : 'Mute mic'}
+                        className={`h-12 w-12 rounded-full flex items-center justify-center shadow transition-colors ${isMicOn
+                            ? 'bg-gray-800 text-gray-100 hover:bg-gray-700'
+                            : 'bg-red-900/20 border border-red-800/40 text-red-400 hover:bg-red-900/30'
+                            }`}
+                    >
+                        {isMicOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
                     </button>
-                    <button onClick={handleDisconnect} className="w-full sm:w-auto bg-white text-black hover:bg-gray-300 px-6 py-2 rounded-full font-semibold shadow">Disconnect</button>
+                    <button
+                        onClick={handleDisconnect}
+                        title="End call"
+                        className="h-12 px-6 rounded-full bg-red-600 hover:bg-red-700 text-white flex items-center justify-center shadow"
+                    >
+                        <PhoneOff className="w-5 h-5" />
+                    </button>
                 </div>
             </div>
         );
