@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Settings, MessageCircle, Copy, Check, User, Bot, Search, X, Loader2, Mic } from 'lucide-react';
+import { Settings, MessageCircle, Copy, Check, User, Bot, Search, X, Loader2, Mic, PhoneCall } from 'lucide-react';
 import { Room, RoomEvent } from 'livekit-client';
 import { AVAILABLE_FUNCTIONS } from '../utils/tools';
 
@@ -30,6 +30,8 @@ const UnifiedAgent = () => {
     const [chatMessages, setChatMessages] = useState([]);
     const [chatInput, setChatInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [callInput, setCallInput] = useState('');
+    const [isCalling, setIsCalling] = useState(false);
 
     // chat-specific state
     const wsRef = useRef(null);
@@ -80,6 +82,29 @@ const UnifiedAgent = () => {
         const { value, checked } = e.target;
         const fn = AVAILABLE_FUNCTIONS[Number(value)];
         setSelectedFunction((prev) => (checked ? [...prev, fn] : prev.filter((f) => f !== fn)));
+    };
+
+    const handleCallInput = (e) => {
+        setCallInput(e.target.value);
+    };
+
+    const handleCall = async () => {
+        if (!callInput.trim() || isCalling) return;
+        try {
+            setIsCalling(true);
+            const response = await fetch('https://temp-vb4k.onrender.com/call', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ to: callInput.trim() })
+            });
+            // ignore response body; best-effort trigger
+            try { await response.json(); } catch {}
+            setCallInput('');
+        } catch {
+            // ignore errors for now
+        } finally {
+            setIsCalling(false);
+        }
     };
 
     const joinAudio = async () => {
@@ -528,6 +553,26 @@ const UnifiedAgent = () => {
                                                 <div className="text-xs text-gray-400">WebSocket text conversation</div>
                                             </div>
                                         </div>
+                                    </button>
+                                </div>
+                                {/* Phone call inline input */}
+                                <div className="mt-3 flex items-center gap-2">
+                                    <input
+                                        type="tel"
+                                        inputMode="tel"
+                                        value={callInput}
+                                        onChange={handleCallInput}
+                                        placeholder="Enter phone number"
+                                        className="flex-1 px-3 py-2 bg-black/60 border border-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-500"
+                                    />
+                                    <button
+                                        onClick={handleCall}
+                                        disabled={!callInput.trim() || isCalling}
+                                        className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-lg font-semibold bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed"
+                                        type="button"
+                                    >
+                                        <PhoneCall className="w-4 h-4" />
+                                        Call
                                     </button>
                                 </div>
                             </div>
