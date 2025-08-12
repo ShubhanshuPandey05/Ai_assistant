@@ -2,9 +2,86 @@ import { useEffect, useRef, useState } from 'react';
 import { Settings, MessageCircle, Copy, Check, User, Bot, Search, X, Loader2, Mic, PhoneCall } from 'lucide-react';
 import { Room, RoomEvent } from 'livekit-client';
 import { AVAILABLE_FUNCTIONS } from '../utils/tools';
+import Select from 'react-select';
 
 const SERVER_URL = 'https://call-server.shipfast.studio/livekit';
 const LIVEKIT_URL = 'wss://aiagent-i9rqezpr.livekit.cloud';
+
+// Minimal country list with flags and dialing codes
+const COUNTRIES = [
+    { code: 'IN', name: 'India', dial: '+91', flag: '🇮🇳' },
+    { code: 'US', name: 'United States', dial: '+1', flag: '🇺🇸' },
+    { code: 'GB', name: 'United Kingdom', dial: '+44', flag: '🇬🇧' },
+    { code: 'CA', name: 'Canada', dial: '+1', flag: '🇨🇦' },
+    { code: 'AU', name: 'Australia', dial: '+61', flag: '🇦🇺' },
+    { code: 'DE', name: 'Germany', dial: '+49', flag: '🇩🇪' },
+    { code: 'FR', name: 'France', dial: '+33', flag: '🇫🇷' },
+    { code: 'ES', name: 'Spain', dial: '+34', flag: '🇪🇸' },
+    { code: 'IT', name: 'Italy', dial: '+39', flag: '🇮🇹' },
+    { code: 'NL', name: 'Netherlands', dial: '+31', flag: '🇳🇱' },
+    { code: 'SG', name: 'Singapore', dial: '+65', flag: '🇸🇬' },
+    { code: 'AE', name: 'UAE', dial: '+971', flag: '🇦🇪' },
+];
+
+const options = COUNTRIES.map(c => ({
+    value: c.code,
+    label: (
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+            <span className={`fi fi-${c.code.toLowerCase()}`} style={{ marginRight: 8 }}></span>
+            {`(${c.dial})`}
+        </div>
+    ),
+}));
+
+// Dark theme styles for react-select
+const selectDarkStyles = {
+    control: (base, state) => ({
+        ...base,
+        minHeight: 40,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        borderColor: 'rgba(255,255,255,0.1)',
+        boxShadow: state.isFocused ? '0 0 0 2px rgba(59,130,246,0.5)' : 'none',
+        ':hover': {
+            borderColor: 'rgba(255,255,255,0.2)'
+        },
+        cursor: 'pointer'
+    }),
+    valueContainer: (base) => ({
+        ...base,
+        padding: '0 8px',
+        color: '#fff'
+    }),
+    singleValue: (base) => ({
+        ...base,
+        color: '#fff'
+    }),
+    input: (base) => ({
+        ...base,
+        color: '#fff'
+    }),
+    placeholder: (base) => ({
+        ...base,
+        color: '#9ca3af'
+    }),
+    dropdownIndicator: (base) => ({
+        ...base,
+        color: '#9ca3af'
+    }),
+    indicatorSeparator: () => ({ display: 'none' }),
+    menu: (base) => ({
+        ...base,
+        backgroundColor: '#0b0b0b',
+        border: '1px solid rgba(255,255,255,0.1)',
+        zIndex: 9999
+    }),
+    option: (base, state) => ({
+        ...base,
+        backgroundColor: state.isFocused ? 'rgba(255,255,255,0.08)' : 'transparent',
+        color: '#e5e7eb',
+        cursor: 'pointer'
+    }),
+    menuPortal: (base) => ({ ...base, zIndex: 9999 })
+};
 
 const UnifiedAgent = () => {
     // shared pre-connect state
@@ -32,6 +109,7 @@ const UnifiedAgent = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [callInput, setCallInput] = useState('');
     const [isCalling, setIsCalling] = useState(false);
+    const [countryCode, setCountryCode] = useState('IN');
 
     // chat-specific state
     const wsRef = useRef(null);
@@ -92,10 +170,13 @@ const UnifiedAgent = () => {
         if (!callInput.trim() || isCalling) return;
         try {
             setIsCalling(true);
+            const selected = COUNTRIES.find(c => c.code === countryCode) || COUNTRIES[0];
+            const raw = callInput.trim().replace(/\s|-/g, '');
+            const fullNumber = raw.startsWith('+') ? raw : `${selected.dial}${raw.replace(/^0+/, '')}`;
             const response = await fetch('https://temp-vb4k.onrender.com/call', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ to: callInput.trim() })
+                body: JSON.stringify({ to: fullNumber })
             });
             // ignore response body; best-effort trigger
             try { await response.json(); } catch {}
@@ -491,7 +572,7 @@ const UnifiedAgent = () => {
                                         className="w-full px-3 py-2 bg-black/60 border border-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                                     >
                                         <option value="" className="bg-black text-white">Unknown</option>
-                                        <option value="+919313552680" className="bg-black text-white">Shubhanshu</option>
+                                        <option value="+919313562780" className="bg-black text-white">Shubhanshu</option>
                                         <option value="+919512467691" className="bg-black text-white">Ankit C</option>
                                         <option value="+918780899485" className="bg-black text-white">Abhinav</option>
                                     </select>
@@ -556,19 +637,30 @@ const UnifiedAgent = () => {
                                     </button>
                                 </div>
                                 {/* Phone call inline input */}
-                                <div className="mt-3 flex items-center gap-2">
+                                <div className="mt-3 flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                                    <Select
+                                        options={options}
+                                        aria-label="Country code"
+                                        value={options.find(o => o.value === countryCode)}
+                                        onChange={(opt) => setCountryCode(opt?.value || 'IN')}
+                                        className="min-w-[5rem] sm:min-w-[8rem]"
+                                        classNamePrefix="country"
+                                        isSearchable={false}
+                                        menuPortalTarget={typeof document !== 'undefined' ? document.body : undefined}
+                                        styles={selectDarkStyles}
+                                    />
                                     <input
                                         type="tel"
                                         inputMode="tel"
                                         value={callInput}
                                         onChange={handleCallInput}
                                         placeholder="Enter phone number"
-                                        className="flex-1 px-3 py-2 bg-black/60 border border-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-500"
+                                        className="flex-1 min-w-[8rem] px-3 py-2 bg-black/60 border border-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-500"
                                     />
                                     <button
                                         onClick={handleCall}
                                         disabled={!callInput.trim() || isCalling}
-                                        className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-lg font-semibold bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed"
+                                        className="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-lg font-semibold bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed w-full sm:w-auto"
                                         type="button"
                                     >
                                         <PhoneCall className="w-4 h-4" />
