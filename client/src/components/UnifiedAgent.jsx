@@ -406,9 +406,9 @@ const UnifiedAgent = () => {
         };
 
         return (
-            <div className="min-h-screen min-w-screen bg-black text-white px-4 py-6 justify-center flex items-center">
+            <div className="min-h-screen min-w-screen bg-black text-white px-4 py-6 justify-center flex items-start md:items-center">
                 <div className="mx-auto w-full max-w-6xl grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Left hero */}
+                    {/* Left hero (desktop) */}
                     <div className="hidden md:flex flex-col items-center justify-center rounded-2xl border border-white/10 bg-gradient-to-b from-white/5 to-transparent p-8">
                         <div className="orb-float mb-6">
                             <img src="/Ai Image.png" alt="AI Orb" className="orb-img" />
@@ -422,6 +422,17 @@ const UnifiedAgent = () => {
                             <span className="px-3 py-1 rounded-full bg-white/10 border border-white/10">Function calling</span>
                             <span className="px-3 py-1 rounded-full bg-white/10 border border-white/10">Context prompts</span>
                         </div>
+                    </div>
+
+                    {/* Hero (mobile) */}
+                    <div className="flex md:hidden flex-col items-center justify-center rounded-2xl border border-white/10 bg-gradient-to-b from-white/5 to-transparent p-6">
+                        <div className="orb-float mb-4">
+                            <img src="/Ai Image.png" alt="AI Orb" className="orb-img" />
+                        </div>
+                        <h2 className="text-lg font-semibold">Design your agent</h2>
+                        <p className="mt-1 text-xs text-gray-400 text-center">
+                            Choose the user, craft the system prompt, and enable the tools you need.
+                        </p>
                     </div>
 
                     {/* Right: tabbed config card */}
@@ -477,7 +488,7 @@ const UnifiedAgent = () => {
                                             <button
                                                 key={i}
                                                 onClick={() => setEditingPrompt(sp)}
-                                                className="text-xs px-3 py-1 rounded-full bg-white/10 hover:bg-white/20 border border-white/10"
+                                                className="text-xs px-3 py-1 text-left rounded-full bg-white/10 hover:bg-white/20 border border-white/10"
                                                 type="button"
                                             >
                                                 {sp}
@@ -487,7 +498,7 @@ const UnifiedAgent = () => {
                                 </div>
 
                                 {/* Join cards */}
-                                <div className="grid grid-cols-2 gap-3 pt-2">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
                                     <button
                                         onClick={joinAudio}
                                         disabled={isLoading}
@@ -525,22 +536,27 @@ const UnifiedAgent = () => {
                         {/* Tools */}
                         {activeTab === 'tools' && (
                             <div>
-                                <div className="flex items-center justify-between mb-3">
-                                    <div className="text-sm font-medium text-gray-300">Available Functions</div>
-                                    <div className="flex items-center gap-3 text-xs text-gray-400">
-                                        <div className="relative">
+                                <div className="mb-3">
+                                    <div className="flex items-center justify-between">
+                                        <div className="text-sm font-medium text-gray-300">Available Functions</div>
+                                        <span className="hidden sm:inline text-xs text-gray-400">{selectedFunction.length} selected</span>
+                                    </div>
+                                    <div className="mt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                                        <div className="relative flex-1">
                                             <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2 top-2.5" />
                                             <input
                                                 value={toolFilter}
                                                 onChange={(e) => setToolFilter(e.target.value)}
                                                 placeholder="Search tools"
-                                                className="pl-7 pr-2 py-1.5 rounded-lg bg-black/60 border border-white/10 text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                                className="w-full pl-7 pr-2 py-1.5 rounded-lg bg-black/60 border border-white/10 text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                                             />
                                         </div>
-                                        <span>{selectedFunction.length} selected</span>
-                                        <button onClick={toggleAllFunctions} className="px-3 py-1 rounded-full bg-black/60 border border-white/10 hover:bg-black/40">
-                                            {isAllSelected ? 'Clear all' : 'Select all'}
-                                        </button>
+                                        <div className="flex items-center justify-between sm:justify-start gap-2 text-xs text-gray-400">
+                                            <span className="sm:hidden">{selectedFunction.length} selected</span>
+                                            <button onClick={toggleAllFunctions} className="px-3 py-1 rounded-full bg-black/60 border border-white/10 hover:bg-black/40 w-fit sm:w-auto">
+                                                {isAllSelected ? 'Clear all' : 'Select all'}
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                                 {selectedFunction.length > 0 && (
@@ -596,11 +612,11 @@ const UnifiedAgent = () => {
                     <img src="/Ai Image.png" alt="AI Orb" />
                 </div>
                 <audio ref={audioRef} autoPlay />
-                <div className="flex gap-3">
-                    <button onClick={handleMicToggle} className={`px-6 py-2 rounded-full font-semibold shadow ${isMicOn ? 'bg-white text-black hover:bg-gray-300' : 'bg-black text-white border-2 hover:bg-gray-900'}`}>
+                <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto px-4 sm:px-0">
+                    <button onClick={handleMicToggle} className={`w-full sm:w-auto px-6 py-2 rounded-full font-semibold shadow ${isMicOn ? 'bg-white text-black hover:bg-gray-300' : 'bg-black text-white border-2 hover:bg-gray-900'}`}>
                         {isMicOn ? 'Stop Mic' : 'Start Mic'}
                     </button>
-                    <button onClick={handleDisconnect} className="bg-white text-black hover:bg-gray-300 px-6 py-2 rounded-full font-semibold shadow">Disconnect</button>
+                    <button onClick={handleDisconnect} className="w-full sm:w-auto bg-white text-black hover:bg-gray-300 px-6 py-2 rounded-full font-semibold shadow">Disconnect</button>
                 </div>
             </div>
         );
@@ -657,9 +673,9 @@ const UnifiedAgent = () => {
                 </div>
             </main>
 
-            <footer className="sticky bottom-0 px-4 py-4 bg-black/80 backdrop-blur border-t border-white/10">
+            <footer className="sticky bottom-0 px-4 py-4 bg-black/80 backdrop-blur border-t border-white/10 pb-[env(safe-area-inset-bottom)]">
                 <div className="mx-auto w-full max-w-3xl">
-                    <div className="flex items-end gap-2">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-2">
                         <textarea
                             rows={1}
                             placeholder="Message..."
@@ -682,13 +698,13 @@ const UnifiedAgent = () => {
                         <button
                             onClick={handleChatSubmit}
                             disabled={!isConnected || !chatInput.trim()}
-                            className="h-11 shrink-0 px-5 rounded-xl font-semibold bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed"
+                            className="h-11 w-full sm:w-auto shrink-0 px-5 rounded-xl font-semibold bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed"
                         >
                             Send
                         </button>
                         <button
                             onClick={handleDisconnect}
-                            className="h-11 shrink-0 px-5 rounded-xl font-semibold bg-white text-black hover:bg-gray-300"
+                            className="h-11 w-full sm:w-auto shrink-0 px-5 rounded-xl font-semibold bg-white text-black hover:bg-gray-300"
                         >
                             Disconnect
                         </button>

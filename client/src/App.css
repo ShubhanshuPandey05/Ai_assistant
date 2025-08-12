@@ -28,6 +28,19 @@ body {
   margin: 0;
 }
 
+/* Mobile adjustments: allow scrolling and natural height */
+@media (max-width: 640px) {
+  html, body {
+    overflow: auto;
+  }
+  body {
+    min-height: 100vh;
+    height: auto;
+    align-items: flex-start;
+    justify-content: flex-start;
+  }
+}
+
 /* Style the circle itself */
 /* 1. Define the animation keyframes */
 @keyframes spin {
