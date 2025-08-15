@@ -4,8 +4,8 @@ import { Room, RoomEvent } from 'livekit-client';
 import { AVAILABLE_FUNCTIONS } from '../utils/tools';
 import Select from 'react-select';
 
-const SERVER_URL = 'https://call-server.shipfast.studio/livekit';
-// const SERVER_URL = 'http://localhost:5001';
+// const SERVER_URL = 'https://call-server.shipfast.studio/livekit';
+const SERVER_URL = 'http://localhost:5001';
 const LIVEKIT_URL = 'wss://aiagent-i9rqezpr.livekit.cloud';
 
 // Minimal country list with flags and dialing codes

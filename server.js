@@ -2632,7 +2632,9 @@ async function handleTrackSubscribed(track, publication, participant, session) {
 
         const stream = new AudioStream(track,
             {
-                noiseCancellation: NC.NoiseCancellation()
+                noiseCancellation: NC.NoiseCancellation(),
+                backgroundVoiceCancellation: NC.BackgroundVoiceCancellation(),
+                telephonyBackgroundVoiceCancellation: NC.TelephonyBackgroundVoiceCancellation()
             }
         );
         const CHUNK_MS = 50;
