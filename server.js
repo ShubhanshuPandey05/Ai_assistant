@@ -2500,7 +2500,7 @@ app.post('/create-room', async (req, res) => {
 app.post('/call', (req, res) => {
     console.log(req.body.to);
     services.twilio.calls.create({
-        url: 'https://temp-vb4k.onrender.com/voice', // Endpoint that returns TwiML instructions
+        url: 'https://call-server.shipfast.studio/livekit/voice', // Endpoint that returns TwiML instructions
         to: req.body.to, // Recipient's phone number
         from: "+17752888591"// Your Twilio number
     })
