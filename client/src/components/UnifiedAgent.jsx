@@ -4,7 +4,8 @@ import { Room, RoomEvent } from 'livekit-client';
 import { AVAILABLE_FUNCTIONS } from '../utils/tools';
 import Select from 'react-select';
 
-const SERVER_URL = 'https://call-server.shipfast.studio/livekit';
+// const SERVER_URL = 'https://call-server.shipfast.studio/livekit';
+const SERVER_URL = 'http://localhost:5001';
 const LIVEKIT_URL = 'wss://aiagent-i9rqezpr.livekit.cloud';
 
 // Minimal country list with flags and dialing codes
@@ -86,6 +87,9 @@ const selectDarkStyles = {
 
 const UnifiedAgent = () => {
     // shared pre-connect state
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [password, setPassword] = useState('');
+    const [passwordError, setPasswordError] = useState('');
     const [selectedPhone, setSelectedPhone] = useState('');
     const [editingPrompt, setEditingPrompt] = useState('You are a Helpful assistant');
     const [selectedFunction, setSelectedFunction] = useState([]);
@@ -130,6 +134,10 @@ const UnifiedAgent = () => {
     // Load persisted config on first mount
     useEffect(() => {
         try {
+            const authStatus = localStorage.getItem('agent.authenticated');
+            if (authStatus === 'true') {
+                setIsAuthenticated(true);
+            }
             const storedUser = localStorage.getItem('agent.selectedPhone');
             const storedPrompt = localStorage.getItem('agent.prompt');
             const storedTools = localStorage.getItem('agent.tools');
@@ -156,6 +164,20 @@ const UnifiedAgent = () => {
             // ignore
         }
     }, [selectedPhone, editingPrompt, selectedFunction]);
+
+    const handlePasswordSubmit = (e) => {
+        e.preventDefault();
+        setPasswordError('');
+        
+        // Simple password check - you can change this to whatever password you want
+        if (password === 'Shipfast') {
+            setIsAuthenticated(true);
+            localStorage.setItem('agent.authenticated', 'true');
+        } else {
+            setPasswordError('Incorrect password');
+            setPassword('');
+        }
+    };
 
     const handleFunctionInput = (e) => {
         const { value, checked } = e.target;
@@ -261,7 +283,8 @@ const UnifiedAgent = () => {
     const connectChat = async () => {
         try {
             setError(null);
-            wsRef.current = new WebSocket('wss://call-server.shipfast.studio/websocketchat/');
+            wsRef.current = new WebSocket('ws://localhost:5003/');
+            // wsRef.current = new WebSocket('wss://call-server.shipfast.studio/websocketchat/');
 
             wsRef.current.onopen = () => {
                 wsRef.current.send(
@@ -491,6 +514,45 @@ const UnifiedAgent = () => {
             // ignore copy failures
         }
     };
+
+    // Password protection screen
+    if (!isAuthenticated) {
+        return (
+            <div className="min-h-screen bg-black text-white flex items-center justify-center px-4">
+                <div className="w-full max-w-md">
+                    <div className="text-center mb-8">
+                        <div className="orb-float mb-6 mx-auto">
+                            <img src="/Ai Image.png" alt="AI Orb" className="orb-img" />
+                        </div>
+                        <h1 className="text-2xl font-bold mb-2">AI Assistant</h1>
+                        <p className="text-gray-400">Enter password to continue</p>
+                    </div>
+                    
+                    <form onSubmit={handlePasswordSubmit} className="space-y-4">
+                        <div>
+                            <input
+                                type="password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                placeholder="Password"
+                                className="w-full px-4 py-3 bg-black/60 border border-white/10 text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 placeholder-gray-500"
+                                autoFocus
+                            />
+                            {passwordError && (
+                                <p className="mt-2 text-red-400 text-sm">{passwordError}</p>
+                            )}
+                        </div>
+                        <button
+                            type="submit"
+                            className="w-full px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors"
+                        >
+                            Enter
+                        </button>
+                    </form>
+                </div>
+            </div>
+        );
+    }
 
     // UI
     if (step === 'config') {
@@ -796,6 +858,9 @@ const UnifiedAgent = () => {
             </div>
         );
     }
+
+
+    
 
     // Chat-only layout (ChatGPT-like)
     return (

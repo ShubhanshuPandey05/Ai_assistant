@@ -577,11 +577,11 @@ const functions = {
             fetch(graphqlEndpoint, {
                 method: 'POST',
                 headers: {
-                  'Content-Type': 'application/json',
-                  'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN, // Replace with your actual access token
+                    'Content-Type': 'application/json',
+                    'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN, // Replace with your actual access token
                 },
                 body: JSON.stringify({
-                  query: `
+                    query: `
                     mutation OrderCancel(
                       $orderId: ID!,
                       $notifyCustomer: Boolean,
@@ -614,22 +614,22 @@ const functions = {
                       }
                     }
                   `,
-                  variables: {
-                    orderId: orderId, // Replace with actual order ID
-                    notifyCustomer: true,
-                    refundMethod: {
-                      originalPaymentMethodsRefund: true
-                    },
-                    restock: true,
-                    reason: "CUSTOMER",
-                    staffNote: "Wrong size. Customer reached out saying they already re-purchased the correct size."
-                  }
+                    variables: {
+                        orderId: orderId, // Replace with actual order ID
+                        notifyCustomer: true,
+                        refundMethod: {
+                            originalPaymentMethodsRefund: true
+                        },
+                        restock: true,
+                        reason: "CUSTOMER",
+                        staffNote: "Wrong size. Customer reached out saying they already re-purchased the correct size."
+                    }
                 })
-              })
-              .then(response => response.json())
-              .then(data => console.log(data))
-              .catch(error => console.error('Error:', error));
-              
+            })
+                .then(response => response.json())
+                .then(data => console.log(data))
+                .catch(error => console.error('Error:', error));
+
 
         } catch (err) {
             if (err.name === 'AbortError') {
@@ -1002,6 +1002,16 @@ class SessionManager {
                     console.warn(`Session ${user.ActiveSessionId}: already exists, re-creating.`);
                     let currentSession = this.getSession(user.ActiveSessionId);
                     currentSession.room = roomName;
+                    currentSession.tools = [...tool, {
+                        name: "hangUp",
+                        description: "Hang up the call",
+                        parameters: {
+                            type: "object",
+                            properties: {},
+                            required: []
+                        }
+                    }]
+                    currentSession.prompt = prompt
                     return currentSession
                 }
             }
@@ -1163,7 +1173,6 @@ class SessionManager {
                 session.dgSocket.close();
                 console.log(`Session ${session.id}: Closed Deepgram socket.`);
             }
-
             if (session.ffmpegProcess) {
                 session.ffmpegProcess.stdin.end();
                 session.ffmpegProcess.kill('SIGINT');
@@ -1174,9 +1183,11 @@ class SessionManager {
                 session.vadProcess.kill('SIGINT');
                 console.log(`Session ${session.id}: Terminated VAD process.`);
             }
-
             if (session.currentAudioStream && typeof session.currentAudioStream.stop === 'function') {
                 session.currentAudioStream.stop();
+            }
+            if (session.prompt) {
+                session.prompt = ""
             }
             session.isAIResponding = false;
         }
@@ -1771,6 +1782,7 @@ const aiProcessing = {
             parts: [{ text: `${input.message}   --end:${input.input_channel}` }]
         });
         // console.log("session.messages", session.messages);
+        console.log("Proooommmmppppttttttttzaaazzzzzz", session.prompt)
 
         // Build the request for Gemini
         const geminiRequest = {
@@ -2257,9 +2269,9 @@ You have the ability hungUp the call.
 ${session.prompt}
 
 ## User Data:
-${user?`Name: ${user.Name}
+${user ? `Name: ${user.Name}
 Email: ${user.Email}
-Phone No: ${user.Phone}s`:"This is the Temp User"}
+Phone No: ${user.Phone}s` : "This is the Temp User"}
 
 ## Output Format:
 Respond with ONLY a valid JSON object in this exact format:
@@ -2279,12 +2291,50 @@ Remember, output must be STRICTLY JSON only.
 `;
 
         session.prompt = prompt;
+
+        // console.log("prompppptptttttt:::::::::::::", session.prompt)
+        // console.log("toolssssssssssss:::::::::::::", session.tools)
     } else {
         session.availableChannel.forEach((c) => {
             if (c.channel === channel) {
                 c.connection = connection
             }
         })
+        let user = userStorage.findUser(session.name)
+        console.log("user:", user)
+        let prompt = `
+Hey You are an Agent who can communicate through many channels, using the variable "output_channel" in your response.
+The communication channels are: ${session.availableChannel.map(c => c.channel).join(", ")}
+There is the system who will inform you the user actions.
+You have the ability hungUp the call.
+
+## This is the User Prompt:
+${session.prompt}
+
+## User Data:
+${user ? `Name: ${user.Name}
+Email: ${user.Email}
+Phone No: ${user.Phone}s` : "This is the Temp User"}
+
+## Output Format:
+Respond with ONLY a valid JSON object in this exact format:
+{
+    "response": "Your response",
+    "output_channel": "communication channel"
+}
+- DO NOT include any explanation or text before or after the JSON.
+- Your response MUST be valid JSON and parsable.
+
+## Example Output:
+If the user ask For an SMS then use the channel sms to send the sms:
+{"response": "SMS Contents", "output_channel": "sms"}
+If the user ask for any other channel then send by that channel:
+{"response": "Your response", "output_channel": "other_channel"}
+Remember, output must be STRICTLY JSON only.
+`;
+
+        session.prompt = prompt;
+        console.log("Channel was Already there", session.prompt)
     }
 }
 
@@ -2394,6 +2444,8 @@ app.post('/create-room', async (req, res) => {
             return res.status(400).json({ error: 'roomName and participantName are required' });
         }
 
+        console.log("toolssssssssssssssss", tool)
+
         // 1. Create room
         await roomService.createRoom({
             name: roomName,
@@ -2434,7 +2486,7 @@ app.post('/create-room', async (req, res) => {
             sessionId: session.id,
             message: 'Room created, agent joined, and token generated',
             token: userJwt,
-            prompt: session.prompt
+            prompt: prompt
         });
 
     } catch (error) {
@@ -2448,8 +2500,8 @@ app.post('/create-room', async (req, res) => {
 function setupRoomEventHandlers(room, session) {
     room.on(RoomEvent.ParticipantConnected, (participant) => {
         console.log(`Session ${session.id}: Participant connected: ${participant.identity} `);
-        console.log("prompt: ", session.prompt)
-        console.log("tools: ", session.tools)
+        // console.log("prompt: ", session.prompt)
+        // console.log("tools: ", session.tools)
 
         sendSystemMessage(session, `${session.name} have joined via WebCall`, "audio");
 
@@ -2559,7 +2611,9 @@ async function handleTrackSubscribed(track, publication, participant, session) {
             if (sampleBuffer.length >= BATCH_SAMPLES) {
                 const buf = Buffer.from(new Int16Array(sampleBuffer).buffer);
                 try {
-                    session.ffmpegProcess.stdin.write(buf);
+                    if (session.ffmpegProcess) {
+                        session.ffmpegProcess.stdin.write(buf);
+                    }
                 } catch (error) {
                     console.log("Error in writting the buffer.")
                 }
@@ -2645,7 +2699,7 @@ function setupAudioProcessingForParticipant(participant, session) {
                     // Introduce a small delay before sending the Finalize message
                     setTimeout(() => {
                         if (session.dgSocket?.readyState === 1) {
-                            console.log(`Session ${session.id}: Sending Deepgram Finalize message after delay.`);
+                            // console.log(`Session ${session.id}: Sending Deepgram Finalize message after delay.`);
                             session.dgSocket.send(JSON.stringify({ "type": "Finalize" }));
                         }
                     }, 200); // A 100ms delay is usually sufficient
@@ -2655,7 +2709,7 @@ function setupAudioProcessingForParticipant(participant, session) {
 
                 // Handle audio chunks
                 if (parsedVAD.chunk) {
-                    console.log(`Session ${session.id}: Got speech chunk (${parsedVAD.chunk.length / 2} chars)`);
+                    // console.log(`Session ${session.id}: Got speech chunk (${parsedVAD.chunk.length / 2} chars)`);
                     const audioBuffer = Buffer.from(parsedVAD.chunk, 'hex');
                     session.vadDeepgramBuffer = Buffer.concat([session.vadDeepgramBuffer, audioBuffer]);
 
@@ -3263,6 +3317,13 @@ wss.on('connection', (ws, req) => {
             const parsedData = JSON.parse(data);
 
             if (parsedData.event === 'start') {
+                setInterval(() => {
+                    ws.send(JSON.stringify({
+                        type: "Ping",
+                        streamSid: session.streamSid
+                    }))
+                }, 10000)
+
                 let userData = parsedData.start?.customParameters?.caller || parsedData.userData;
                 session = sessionManager.createSession(ws, userData, parsedData.prompt, parsedData.tools); // Pass ws to session manager
                 sessionId = session.id;
@@ -3277,7 +3338,7 @@ wss.on('connection', (ws, req) => {
                 ws.send(JSON.stringify({
                     type: "current_prompt",
                     streamSid: session.streamSid,
-                    prompt: session.prompt,
+                    prompt: "prompt",
                     functions: toolDefinitions
                 }))
 
@@ -3459,6 +3520,12 @@ wssChat.on('connection', (ws, req) => {
             const parsedData = JSON.parse(data);
 
             if (parsedData.event === 'start') {
+                setInterval(() => {
+                    ws.send(JSON.stringify({
+                        type: "Ping",
+                        streamSid: session.streamSid
+                    }))
+                }, 10000)
                 // console.log('start',parsedData);
                 let userData = parsedData.start?.customParameters?.caller || parsedData.userData;
                 session = sessionManager.createSession(ws, userData, parsedData.prompt, parsedData.tools); // Pass ws to session manager
