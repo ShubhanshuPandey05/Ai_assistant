@@ -1790,6 +1790,12 @@ const aiProcessing = {
             contents: session.messages,
             tools: session.tools.length > 0 ? [{ functionDeclarations: session.tools }] : undefined,
             // tools: toolDefinitions,
+            safetySettings: [
+                { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+                { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+                { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+                { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+            ],
             generationConfig: {
                 temperature: 0.2
             },
@@ -2510,20 +2516,20 @@ app.post('/call', (req, res) => {
 
 app.post('/voice', (req, res) => {
     let callerNumber = req.body.From;
-    if(req.body.Caller === '+17752888591'){
-      callerNumber = req.body.To;
+    if (req.body.Caller === '+17752888591') {
+        callerNumber = req.body.To;
     }
-    const wsUrl = `ws://localhost:5002/`;
+    const wsUrl = `wss://call-server.shipfast.studio/websocket/`;
     const response = new twiml.VoiceResponse();
     const connect = response.connect();
-    const stream  = connect.stream({ url: wsUrl });
+    const stream = connect.stream({ url: wsUrl });
     stream.parameter({ name: 'caller', value: callerNumber })
     // response.start().stream({ url: 'wss://a31a-2401-4900-1c80-9450-6c61-8e74-1d49-209a.ngrok-free.app', track:'both' });
     response.say("Thanks for calling.");
     // response.pause({ length: 60 })
     res.type('text/xml');
     res.send(response.toString());
-  });
+});
 
 
 // Setup room event handlers

@@ -308,7 +308,7 @@ const UnifiedAgent = () => {
                     } else if (data.type === 'text' || data.type === 'text_response') {
                         setChatMessages((prev) => [...prev, { role: 'assistant', content: data.media?.payload ?? '' }]);
                     } else if (data.type === 'current_prompt') {
-                        setEditingPrompt(data.prompt);
+                        // setEditingPrompt(data.prompt);
                     } else if (data.error) {
                         setError(data.error);
                         setIsLoading(false);
