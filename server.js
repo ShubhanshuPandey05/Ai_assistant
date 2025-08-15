@@ -6,6 +6,7 @@ require('dotenv').config();
 const { PollyClient, SynthesizeSpeechCommand } = require("@aws-sdk/client-polly");
 const OpenAI = require("openai");
 const twilio = require('twilio');
+const { twiml } = require('twilio');
 const SHOPIFY_STORE_URL = process.env.SHOPIFY_STORE_URL;
 const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
 const graphqlEndpoint = `https://${SHOPIFY_STORE_URL}/admin/api/2025-07/graphql.json`;
@@ -2425,6 +2426,7 @@ app.use(cors({
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(express.json());
 
+
 // Session Management Instance
 const sessionManager = new SessionManager();
 
@@ -2494,6 +2496,34 @@ app.post('/create-room', async (req, res) => {
         res.status(500).json({ error: 'Failed to create room and generate token' });
     }
 });
+
+app.post('/call', (req, res) => {
+    console.log(req.body.to);
+    services.twilio.calls.create({
+        url: 'https://temp-vb4k.onrender.com/voice', // Endpoint that returns TwiML instructions
+        to: req.body.to, // Recipient's phone number
+        from: "+17752888591"// Your Twilio number
+    })
+        .then(call => console.log(call.sid));
+    res.status(201);
+})
+
+app.post('/voice', (req, res) => {
+    let callerNumber = req.body.From;
+    if(req.body.Caller === '+17752888591'){
+      callerNumber = req.body.To;
+    }
+    const wsUrl = `ws://localhost:5002/`;
+    const response = new twiml.VoiceResponse();
+    const connect = response.connect();
+    const stream  = connect.stream({ url: wsUrl });
+    stream.parameter({ name: 'caller', value: callerNumber })
+    // response.start().stream({ url: 'wss://a31a-2401-4900-1c80-9450-6c61-8e74-1d49-209a.ngrok-free.app', track:'both' });
+    response.say("Thanks for calling.");
+    // response.pause({ length: 60 })
+    res.type('text/xml');
+    res.send(response.toString());
+  });
 
 
 // Setup room event handlers
