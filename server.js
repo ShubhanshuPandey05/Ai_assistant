@@ -1849,8 +1849,8 @@ const aiProcessing = {
                     toolResult = await functions.cancelOrder(args.orderId, options);
                 } else if (functionCall.name === "hangUp") {
                     console.log('Hanging Up The Calllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll')
-                    // toolResult = await functions.endCall(session.room);
-                    toolResult = "You cannot hungup the call."
+                    toolResult = await functions.endCall(session.room);
+                    // toolResult = "You cannot hungup the call."
                 } else {
                     toolResult = { error: "Unknown function requested." };
                 }
