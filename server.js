@@ -994,7 +994,7 @@ class SessionManager {
         this.sessions = new Map(); // Stores active sessions by roomName
     }
 
-    createSession(roomName, userData, prompt, tool = toolDefinitions) {
+    createSession(roomName, userData, prompt, tool = []) {
         let user = userStorage.findUser(userData)
         // console.log(user)
         if (user) {
