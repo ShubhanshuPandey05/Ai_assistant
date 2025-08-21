@@ -2296,6 +2296,8 @@ If the user ask For an SMS then use the channel sms to send the sms:
 If the user ask for any other channel then send by that channel:
 {"response": "Your response", "output_channel": "other_channel"}
 Remember, output must be STRICTLY JSON only.
+
+only hangup the call when user says to hangup.
 `;
 
         session.prompt = prompt;
@@ -2338,6 +2340,8 @@ If the user ask For an SMS then use the channel sms to send the sms:
 If the user ask for any other channel then send by that channel:
 {"response": "Your response", "output_channel": "other_channel"}
 Remember, output must be STRICTLY JSON only.
+
+only hangup the call when user says to hangup.
 `;
 
         session.prompt = prompt;
