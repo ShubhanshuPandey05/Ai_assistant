@@ -3400,10 +3400,11 @@ wss.on('connection', (ws, req) => {
                 session.prompt = parsedData.start?.customParameters?.prompt || "You have called the User for the Sale at the store";
 
                 setChannel(ws, session, "audio")
-                sendSystemMessage(session, `${session.name} have joined via PhoneCall`, "audio");
-
+                
                 // console.log(session.caller);
                 console.log(`Session ${sessionId}: Twilio stream started for CallSid: ${session.callSid}`);
+
+                sendSystemMessage(session, `${session.name} have joined via PhoneCall, Talk to the User`, "audio");
                 ws.send(JSON.stringify({
                     type: "current_prompt",
                     streamSid: session.streamSid,
