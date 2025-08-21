@@ -24,8 +24,6 @@ const bodyParser = require('body-parser');
 const { RoomServiceClient, AccessToken } = require('livekit-server-sdk');
 const { Room, RoomEvent, RemoteParticipant, LocalParticipant, AudioPresets, VideoPresets, TrackSource, AudioSource, LocalAudioTrack, AudioFrame, TrackKind, AudioStream } = require('@livekit/rtc-node');
 const NC = require('@livekit/noise-cancellation-node');
-const csv = require('csv-parser');
-import { jsPDF } from "jspdf";
 
 const PROTO_PATH = './turn.proto';
 
