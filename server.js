@@ -2506,14 +2506,14 @@ app.post('/create-room', async (req, res) => {
 app.post('/call', (req, res) => {
     const sid = req.body.twilio_sid
     const token = req.body.twilio_token
-    let twilio = services.twilio
+    let twilioc = services.twilio
     if (sid && token) {
-        twilio = new twilio(sid, token)
+        twilioc = new twilio(sid, token)
         console.log("New twilio client created for the new bulk user")
     }
     console.log(req.body.to);
     console.log(`https://call-server.shipfast.studio/livekit/voice?name=${encodeURIComponent(req.body.name)}&prompt=${encodeURIComponent(req.body.prompt)}&recall_url=${encodeURIComponent(req.body.recall_url)}`)
-    twilio.calls.create({
+    twilioc.calls.create({
         url: `https://call-server.shipfast.studio/livekit/voice?name=${encodeURIComponent(req.body.name)}&prompt=${encodeURIComponent(req.body.prompt)}&recall_url=${encodeURIComponent(req.body.recall_url)}`, // Endpoint that returns TwiML instructions
         to: req.body.to, // Recipient's phone number
         from: req.body.from || '+17752888591'// Your Twilio number
