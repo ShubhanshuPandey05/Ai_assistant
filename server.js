@@ -2527,9 +2527,9 @@ app.post('/voice', (req, res) => {
     if (req.body.Caller === '+17752888591') {
         callerNumber = req.body.To;
     }
-    let name = req.params.name
-    let prompt = req.params.name
-    let recall_url = req.params.name
+    let name = req.query.name;
+    let prompt = req.query.prompt;
+    let recall_url = req.query.recall_url;
     console.log(name,prompt,recall_url)
     const wsUrl = `wss://call-server.shipfast.studio/websocket/`;
 
@@ -3390,6 +3390,7 @@ wss.on('connection', (ws, req) => {
                 session.streamSid = parsedData?.streamSid; // Confirm streamSid in session
                 session.caller = parsedData.start?.customParameters?.caller || userData;
                 session.recall_url = parsedData.start?.customParameters?.recall_url || null
+                session.prompt = parsedData.start?.customParameters?.prompt || "You have called the User for the Sale at the store";
 
                 setChannel(ws, session, "audio")
                 sendSystemMessage(session, `${session.name} have joined via PhoneCall`, "audio");
@@ -3528,6 +3529,7 @@ wss.on('connection', (ws, req) => {
         console.log(`Session ${sessionId}: Twilio client disconnected.`);
         if (sessionId) {
             if (session.recall_url) {
+                console.log(session.recall_url)
                 const res = await fetch(session.recall_url, {
                     method: "post",
                     body: JSON.stringify(
