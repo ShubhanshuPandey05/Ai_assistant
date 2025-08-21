@@ -24,6 +24,8 @@ const bodyParser = require('body-parser');
 const { RoomServiceClient, AccessToken } = require('livekit-server-sdk');
 const { Room, RoomEvent, RemoteParticipant, LocalParticipant, AudioPresets, VideoPresets, TrackSource, AudioSource, LocalAudioTrack, AudioFrame, TrackKind, AudioStream } = require('@livekit/rtc-node');
 const NC = require('@livekit/noise-cancellation-node');
+const csv = require('csv-parser');
+import { jsPDF } from "jspdf";
 
 const PROTO_PATH = './turn.proto';
 
@@ -2504,11 +2506,19 @@ app.post('/create-room', async (req, res) => {
 });
 
 app.post('/call', (req, res) => {
+    const sid = req.body.twilio_sid
+    const token = req.body.twilio_token
+    let twilio = services.twilio
+    if (sid && token) {
+        twilio = new twilio(sid, token)
+        console.log("New twilio client created for the new bulk user")
+    }
     console.log(req.body.to);
-    services.twilio.calls.create({
-        url: 'https://call-server.shipfast.studio/livekit/voice', // Endpoint that returns TwiML instructions
+    console.log(`https://call-server.shipfast.studio/livekit/voice?name=${encodeURIComponent(req.body.name)}&prompt=${encodeURIComponent(req.body.prompt)}&recall_url=${encodeURIComponent(req.body.recall_url)}`)
+    twilio.calls.create({
+        url: `https://call-server.shipfast.studio/livekit/voice?name=${encodeURIComponent(req.body.name)}&prompt=${encodeURIComponent(req.body.prompt)}&recall_url=${encodeURIComponent(req.body.recall_url)}`, // Endpoint that returns TwiML instructions
         to: req.body.to, // Recipient's phone number
-        from: "+17752888591"// Your Twilio number
+        from: req.body.from || '+17752888591'// Your Twilio number
     })
         .then(call => console.log(call.sid));
     res.status(201);
@@ -2519,17 +2529,31 @@ app.post('/voice', (req, res) => {
     if (req.body.Caller === '+17752888591') {
         callerNumber = req.body.To;
     }
+    let name = req.params.name
+    let prompt = req.params.name
+    let recall_url = req.params.name
+    console.log(name,prompt,recall_url)
     const wsUrl = `wss://call-server.shipfast.studio/websocket/`;
+
+    // { name: 'Prompt', value: req.body.prompt}, { name: 'name', value: req.body.name}
+
     const response = new twiml.VoiceResponse();
     const connect = response.connect();
     const stream = connect.stream({ url: wsUrl });
     stream.parameter({ name: 'caller', value: callerNumber })
+    stream.parameter({ name: 'name', value: decodeURIComponent(name) })
+    stream.parameter({ name: 'prompt', value: decodeURIComponent(prompt) })
+    stream.parameter({ name: 'recall_url', value: decodeURIComponent(recall_url) })
     // response.start().stream({ url: 'wss://a31a-2401-4900-1c80-9450-6c61-8e74-1d49-209a.ngrok-free.app', track:'both' });
     response.say("Thanks for calling.");
     // response.pause({ length: 60 })
     res.type('text/xml');
     res.send(response.toString());
 });
+
+// app.post('/bulk-call', (req, res) => {
+
+// })
 
 
 // Setup room event handlers
@@ -3353,7 +3377,6 @@ wss.on('connection', (ws, req) => {
     ws.on('message', async (data) => {
         try {
             const parsedData = JSON.parse(data);
-
             if (parsedData.event === 'start') {
                 setInterval(() => {
                     ws.send(JSON.stringify({
@@ -3363,11 +3386,13 @@ wss.on('connection', (ws, req) => {
                 }, 10000)
 
                 let userData = parsedData.start?.customParameters?.caller || parsedData.userData;
-                session = sessionManager.createSession(ws, userData, parsedData.prompt, parsedData.tools); // Pass ws to session manager
+                session = sessionManager.createSession(ws, userData, parsedData.start?.customParameters?.prompt, parsedData.tools); // Pass ws to session manager
                 sessionId = session.id;
                 session.callSid = parsedData.start?.callSid;
                 session.streamSid = parsedData?.streamSid; // Confirm streamSid in session
                 session.caller = parsedData.start?.customParameters?.caller || userData;
+                session.recall_url = parsedData.start?.customParameters?.recall_url || null
+
                 setChannel(ws, session, "audio")
                 sendSystemMessage(session, `${session.name} have joined via PhoneCall`, "audio");
 
@@ -3491,14 +3516,33 @@ wss.on('connection', (ws, req) => {
                 console.log('prompt', parsedData.prompt)
                 changePrompt(session, parsedData.prompt, parsedData.tools, ws)
             }
+            // ws.send(JSON.stringify({
+            //     type: "conversationHistory",
+            //     streamSid: session.streamSid,
+            //     conversation: session.chatHistory? session.chatHistory: []
+            // }))
         } catch (err) {
             console.error(`Session ${sessionId}: Error processing Twilio WebSocket message:`, err);
         }
     });
 
-    ws.on('close', () => {
+    ws.on('close', async () => {
         console.log(`Session ${sessionId}: Twilio client disconnected.`);
         if (sessionId) {
+            if (session.recall_url) {
+                const res = await fetch(session.recall_url, {
+                    method: "post",
+                    body: JSON.stringify(
+                        {
+                            "status": "Call Completed",
+                            "phone": session.caller,
+                            "conversation": session.chatHistory
+                        }
+                    )
+                })
+                const data = await res.json();
+                console.log(data)
+            }
             sessionManager.cleanupSession(session);
         }
         clearInterval(deepgramKeepAliveInterval); // Clear keep-alive for this WS
