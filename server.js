@@ -2314,7 +2314,6 @@ Remember, output must be STRICTLY JSON only.
 Hey You are an Agent who can communicate through many channels, using the variable "output_channel" in your response.
 The communication channels are: ${session.availableChannel.map(c => c.channel).join(", ")}
 There is the system who will inform you the user actions.
-You have the ability hungUp the call.
 
 ## This is the User Prompt:
 ${session.prompt}
