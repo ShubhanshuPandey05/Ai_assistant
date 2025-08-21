@@ -3500,12 +3500,12 @@ wss.on('connection', (ws, req) => {
                 //     announcementText = `Hello ${userDetails.firstName}, welcome to the Gautam Garments. How can I help you today?`;
                 // }
 
-                const mp3Buffer = await aiProcessing.synthesizeSpeech3(announcementText, session.id);
-                if (mp3Buffer) {
+                // const mp3Buffer = await aiProcessing.synthesizeSpeech3(announcementText, session.id);
+                // if (mp3Buffer) {
 
-                    audioUtils.universalStreamAudio(session.availableChannel.find(con => con.channel == 'audio').connection, mp3Buffer, session);
+                //     audioUtils.universalStreamAudio(session.availableChannel.find(con => con.channel == 'audio').connection, mp3Buffer, session);
 
-                }
+                // }
 
             } else if (parsedData.event === 'media' && parsedData.media?.payload) {
                 if (session && session.ffmpegProcess && session.ffmpegProcess.stdin.writable) {
