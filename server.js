@@ -3532,6 +3532,7 @@ wss.on('connection', (ws, req) => {
                 console.log(session.recall_url)
                 const res = await fetch(session.recall_url, {
                     method: "post",
+                    headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(
                         {
                             "status": "Call Completed",
