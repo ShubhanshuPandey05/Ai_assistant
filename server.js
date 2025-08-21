@@ -1848,6 +1848,7 @@ const aiProcessing = {
                     };
                     toolResult = await functions.cancelOrder(args.orderId, options);
                 } else if (functionCall.name === "hangUp") {
+                    console.log('Hanging Up The Calllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll')
                     toolResult = await functions.endCall(session.room);
                 } else {
                     toolResult = { error: "Unknown function requested." };
@@ -2519,7 +2520,8 @@ app.post('/call', (req, res) => {
         from: req.body.from || '+17752888591'// Your Twilio number
     })
         .then(call => console.log(call.sid));
-    res.status(201);
+    
+    res.status(201).json({"message":"Called this user"});
 })
 
 app.post('/voice', (req, res) => {
@@ -3493,7 +3495,7 @@ wss.on('connection', (ws, req) => {
 
                 // const userDetails = await functions.getUserDetailsByPhoneNo(session.caller);
                 // console.log(userDetails);
-                let announcementText = session.chatHistory[0].content; // Get initial message from chat history
+                // let announcementText = session.chatHistory[0].content; // Get initial message from chat history
                 // if (userDetails) {
                 //     announcementText = `Hello ${userDetails.firstName}, welcome to the Gautam Garments. How can I help you today?`;
                 // }
