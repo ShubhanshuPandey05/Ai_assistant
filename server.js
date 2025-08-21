@@ -994,7 +994,7 @@ class SessionManager {
         this.sessions = new Map(); // Stores active sessions by roomName
     }
 
-    createSession(roomName, userData, prompt, tool = []) {
+    createSession(roomName, userData, prompt, tool = toolDefinitions) {
         let user = userStorage.findUser(userData)
         // console.log(user)
         if (user) {
@@ -1849,8 +1849,8 @@ const aiProcessing = {
                     toolResult = await functions.cancelOrder(args.orderId, options);
                 } else if (functionCall.name === "hangUp") {
                     console.log('Hanging Up The Calllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll')
-                    // toolResult = await functions.endCall(session.room);
-                    toolResult = "Talk to the User"
+                    toolResult = await functions.endCall(session.room);
+                    // toolResult = "Talk to the User"
                 } else {
                     toolResult = { error: "Unknown function requested." };
                 }
@@ -1903,8 +1903,10 @@ const aiProcessing = {
                 return {
                     processedText: parsedData.response,
                     outputType: parsedData.output_channel
-                };
+                }; 
             } catch (error) {
+
+                console.log("JSON Response is not completed", responseText)
                 return {
                     processedText: responseText || "Sorry, I had trouble understanding. Could you please rephrase?",
                     outputType: input.input_channel
@@ -2548,7 +2550,7 @@ app.post('/voice', (req, res) => {
     stream.parameter({ name: 'prompt', value: decodeURIComponent(prompt) })
     stream.parameter({ name: 'recall_url', value: decodeURIComponent(recall_url) })
     // response.start().stream({ url: 'wss://a31a-2401-4900-1c80-9450-6c61-8e74-1d49-209a.ngrok-free.app', track:'both' });
-    response.say("Thanks for calling.");
+    response.say("Have a Good day");
     // response.pause({ length: 60 })
     res.type('text/xml');
     res.send(response.toString());
