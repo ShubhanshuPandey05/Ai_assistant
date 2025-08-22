@@ -1783,7 +1783,7 @@ const aiProcessing = {
             parts: [{ text: `${input.message}   --end:${input.input_channel}` }]
         });
         // console.log("session.messages", session.messages);
-        console.log("Proooommmmppppttttttttzaaazzzzzz", session.prompt)
+        // console.log("Proooommmmppppttttttttzaaazzzzzz", session.prompt)
 
         // Build the request for Gemini
         const geminiRequest = {
@@ -2281,7 +2281,7 @@ ${session.prompt}
 ## User Data:
 ${user ? `Name: ${user.Name}
 Email: ${user.Email}
-Phone No: ${user.Phone}s` : "This is the Temp User"}
+Phone No: ${user.Phone}s` : `This is the Temp User with User Name: ${session.userName}`}
 
 ## Output Format:
 Respond with ONLY a valid JSON object in this exact format:
@@ -2303,9 +2303,6 @@ only hangup the call when user says to hangup.
 `;
 
         session.prompt = prompt;
-
-        // console.log("prompppptptttttt:::::::::::::", session.prompt)
-        // console.log("toolssssssssssss:::::::::::::", session.tools)
     } else {
         session.availableChannel.forEach((c) => {
             if (c.channel === channel) {
@@ -2347,7 +2344,6 @@ only hangup the call when user says to hangup.
 `;
 
         session.prompt = prompt;
-        console.log("Channel was Already there", session.prompt)
     }
 }
 
@@ -3397,7 +3393,8 @@ wss.on('connection', (ws, req) => {
                 session.streamSid = parsedData?.streamSid; // Confirm streamSid in session
                 session.caller = parsedData.start?.customParameters?.caller || userData;
                 session.recall_url = parsedData.start?.customParameters?.recall_url || null
-                session.prompt = parsedData.start?.customParameters?.prompt || "You have called the User for the Sale at the store";
+                session.prompt = parsedData.start?.customParameters?.prompt || "You have called the User for greeting them";
+                session.userName = parsedData.start?.customParameters?.name || "User don't have a name just greet them with the Sir"
 
                 setChannel(ws, session, "audio")
                 
