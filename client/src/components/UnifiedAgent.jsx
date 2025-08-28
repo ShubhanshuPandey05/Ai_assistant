@@ -283,8 +283,8 @@ const UnifiedAgent = () => {
     const connectChat = async () => {
         try {
             setError(null);
-            // wsRef.current = new WebSocket('ws://localhost:5003/');
-            wsRef.current = new WebSocket('wss://call-server.shipfast.studio/websocketchat/');
+            wsRef.current = new WebSocket('ws://localhost:5003/');
+            // wsRef.current = new WebSocket('wss://call-server.shipfast.studio/websocketchat/');
 
             wsRef.current.onopen = () => {
                 wsRef.current.send(

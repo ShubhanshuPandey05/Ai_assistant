@@ -10,8 +10,7 @@ const { twiml } = require('twilio');
 const SHOPIFY_STORE_URL = process.env.SHOPIFY_STORE_URL;
 const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
 const graphqlEndpoint = `https://${SHOPIFY_STORE_URL}/admin/api/2025-07/graphql.json`;
-const grpc = require('@grpc/grpc-js');
-const protoLoader = require('@grpc/proto-loader');
+// gRPC client now imported from modules/turnDetector
 const { Transform } = require('stream');
 const WebSocket = require('ws');
 const { createClient, LiveTTSEvents, LiveClient } = require('@deepgram/sdk');
@@ -19,28 +18,16 @@ const deepgramTts = createClient(process.env.DEEPGRAM_API);
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const bodyParser = require('body-parser');
 // const { MessagingResponse } = require('twilio');
+const shopifyService = require('./services/shopify');
+const audioUtilsModule = require('./utils/audio');
+const aiService = require('./services/ai');
 
 // LiveKit imports
 const { RoomServiceClient, AccessToken } = require('livekit-server-sdk');
 const { Room, RoomEvent, RemoteParticipant, LocalParticipant, AudioPresets, VideoPresets, TrackSource, AudioSource, LocalAudioTrack, AudioFrame, TrackKind, AudioStream } = require('@livekit/rtc-node');
 const NC = require('@livekit/noise-cancellation-node');
 
-const PROTO_PATH = './turn.proto';
-
-// Load proto file
-const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
-    keepCase: true,
-    longs: String,
-    enums: String,
-    defaults: true,
-    oneofs: true,
-});
-const turnProto = grpc.loadPackageDefinition(packageDefinition).turn;
-
-const turnDetector = new turnProto.TurnDetector(
-    'localhost:50051',
-    grpc.credentials.createInsecure()
-);
+const { client: turnDetector } = require('./modules/turnDetector');
 
 const FRAME_SMP = 480;
 const FRAME_BYTES = FRAME_SMP * 2;
@@ -719,6 +706,19 @@ const functions = {
     // }
 }
 
+// Wire external service implementations without changing names
+try {
+    if (shopifyService && typeof functions === 'object') {
+        functions.getAllProducts = shopifyService.getAllProducts || functions.getAllProducts;
+        functions.getUserDetailsByPhoneNo = shopifyService.getUserDetailsByPhoneNo || functions.getUserDetailsByPhoneNo;
+        functions.getAllOrders = shopifyService.getAllOrders || functions.getAllOrders;
+        functions.getOrderById = shopifyService.getOrderById || functions.getOrderById;
+        functions.cancelOrder = shopifyService.cancelOrder || functions.cancelOrder;
+    }
+} catch (e) {
+    // keep original inline implementations on error
+}
+
 // Configuration Constants
 const CONFIG = {
     MAX_RECONNECT_ATTEMPTS: 5,
@@ -989,211 +989,7 @@ try {
 }
 
 // Session Management
-class SessionManager {
-    constructor() {
-        this.sessions = new Map(); // Stores active sessions by roomName
-    }
-
-    createSession(roomName, userData, prompt, tool = []) {
-        let user = userStorage.findUser(userData)
-        // console.log(user)
-        if (user) {
-            if (user.ActiveSessionId) {
-                if (this.sessions.has(user.ActiveSessionId)) {
-                    console.warn(`Session ${user.ActiveSessionId}: already exists, re-creating.`);
-                    let currentSession = this.getSession(user.ActiveSessionId);
-                    currentSession.room = roomName;
-                    currentSession.tools = [...tool, {
-                        name: "hangUp",
-                        description: "Hang up the call",
-                        parameters: {
-                            type: "object",
-                            properties: {},
-                            required: []
-                        }
-                    }]
-                    currentSession.prompt = prompt
-                    return currentSession
-                }
-            }
-            const id = generateRandomIdFromData(userData);
-            const session = {
-                id: id,
-                room: roomName,
-                name: user.Name,
-                dgSocket: null,
-                lastTranscript: '',
-                transcriptBuffer: [],
-                audioStartTime: null,
-                lastInterimTime: Date.now(),
-                isSpeaking: false,
-                lastInterimTranscript: '',
-                interimResultsBuffer: [],
-                streamSid: '',
-                callSid: '',
-                isAIResponding: false,
-                currentAudioStream: null,
-                interruption: false,
-                lastInterruptionTime: 0,
-                interruptionCooldown: 200,
-                lastResponseId: null,
-                phoneNo: user.Phone,
-                availableChannel: [{
-                    channel: "sms"
-                }],
-                chatHistory: [],
-                // Your Tasks:
-
-                // Understand the user's message and intent.
-                // If you need specific store data (like product lists, order details, or customer info), use the available tools by calling the appropriate function with the required parameters.
-                // After receiving tool results, use them to generate a helpful, concise, and accurate response for the user.
-                // Always return your answer in JSON format with two fields:
-                // "response": your textual reply for the user
-                // "output_channel": the medium for your response
-
-                // Example Output:
-                // {
-                // "response": "Here are the top 5 products from Gautam Garment.",
-                // "output_channel": "audio"
-                // }
-
-                // User Input Format:
-                // The user's message will be a JSON object with "message" and "input_channel", for example:
-                // {
-                // "message": "Show me my recent orders",
-                // "input_channel": "audio"
-                // }
-
-                // Available Tools (functions):
-                // getAllProducts: Get a list of all products in the store.
-                // getUserDetailsByPhoneNo: Get customer details by phone number.
-                // getAllOrders: Get a list of all orders.
-                // getOrderById: Get details for a specific order by its ID.
-
-                // Instructions:
-                // If a user's request requires store data, call the relevant tool first, then use its result in your reply.
-                // If the user asks a general question or your response does not require real-time store data, answer directly.
-                // ***Always use the user's input_channel for your response if it matches the available ***
-                // The store name is "Gautam Garment"—refer to it by name in your responses when appropriate.`,
-                prompt: prompt || "You are ai assistant.",
-                metrics: { llm: 0, stt: 0, tts: 0 },
-
-                ffmpegProcess: null,
-                vadProcess: null,
-                turndetectionprocess: null,
-                vadDeepgramBuffer: Buffer.alloc(0),
-                isVadSpeechActive: false,
-                currentUserUtterance: '',
-                isTalking: false,
-                tools: [...tool, {
-                    name: "hangUp",
-                    description: "Hang up the call",
-                    parameters: {
-                        type: "object",
-                        properties: {},
-                        required: []
-                    }
-                }],
-                message: []
-            };
-            userStorage.setActiveSession(userData, id);
-            this.sessions.set(id, session);
-            console.log(`Session ${roomName}: Created new session.`);
-            return session;
-        }
-        const id = generateRandomIdFromData("temp");
-        const session = {
-            id: id,
-            room: roomName,
-            name: "User",
-            dgSocket: null,
-            lastTranscript: '',
-            transcriptBuffer: [],
-            audioStartTime: null,
-            lastInterimTime: Date.now(),
-            isSpeaking: false,
-            lastInterimTranscript: '',
-            interimResultsBuffer: [],
-            streamSid: '',
-            callSid: '',
-            isAIResponding: false,
-            currentAudioStream: null,
-            interruption: false,
-            lastInterruptionTime: 0,
-            interruptionCooldown: 200,
-            lastResponseId: null,
-            phoneNo: "",
-            availableChannel: [],
-            chatHistory: [{
-                role: 'assistant',
-                content: "Hello! You are speaking to an AI assistant."
-            }],
-            prompt: prompt || "You are ai assistant.",
-            metrics: { llm: 0, stt: 0, tts: 0 },
-
-            ffmpegProcess: null,
-            vadProcess: null,
-            turndetectionprocess: null,
-            vadDeepgramBuffer: Buffer.alloc(0),
-            isVadSpeechActive: false,
-            currentUserUtterance: '',
-            isTalking: false,
-            tools: [...tool, {
-                name: "hangUp",
-                description: "Hang up the call",
-                parameters: {
-                    type: "object",
-                    properties: {},
-                    required: []
-                }
-            }],
-            message: []
-        };
-        this.sessions.set(id, session);
-        console.log(`Session ${roomName}: Created new session.`);
-        return session;
-    }
-
-    getSession(roomName) {
-        return this.sessions.get(roomName);
-    }
-
-    deleteSession(roomName) {
-        const session = this.sessions.get(roomName);
-        if (session) {
-            this.cleanupSession(roomName);
-            this.sessions.delete(roomName);
-            console.log(`Session ${roomName}: Deleted session.`);
-        }
-    }
-
-    cleanupSession(session) {
-        // const session = this.sessions.get(roomName);
-        if (session) {
-            if (session.dgSocket?.readyState === 1) { // WebSocket.OPEN
-                session.dgSocket.close();
-                console.log(`Session ${session.id}: Closed Deepgram socket.`);
-            }
-            if (session.ffmpegProcess) {
-                session.ffmpegProcess.stdin.end();
-                session.ffmpegProcess.kill('SIGINT');
-                console.log(`Session ${session.id}: Terminated ffmpeg process.`);
-            }
-            if (session.vadProcess) {
-                session.vadProcess.stdin.end();
-                session.vadProcess.kill('SIGINT');
-                console.log(`Session ${session.id}: Terminated VAD process.`);
-            }
-            if (session.currentAudioStream && typeof session.currentAudioStream.stop === 'function') {
-                session.currentAudioStream.stop();
-            }
-            if (session.prompt) {
-                session.prompt = ""
-            }
-            session.isAIResponding = false;
-        }
-    }
-}
+const { SessionManager } = require('./modules/session');
 
 // Audio Processing Utilities
 const audioUtils = {
@@ -1202,97 +998,9 @@ const audioUtils = {
         return Buffer.alloc(numSamples);
     },
 
-    convertMp3ToMulaw(mp3Buffer, sessionId) {
-        return new Promise((resolve, reject) => {
-            const ffmpeg = spawn('ffmpeg', [
-                '-i', 'pipe:0',
-                '-f', 'mulaw',
-                '-ar', CONFIG.AUDIO_SAMPLE_RATE.toString(),
-                '-ac', '1',
-                '-acodec', 'pcm_mulaw',
-                '-y',
-                'pipe:1'
-            ]);
+    convertMp3ToMulaw: audioUtilsModule.convertMp3ToMulaw,
 
-            let mulawBuffer = Buffer.alloc(0);
-
-            ffmpeg.stdout.on('data', (data) => {
-                mulawBuffer = Buffer.concat([mulawBuffer, data]);
-            });
-
-            ffmpeg.stderr.on('data', (data) => {
-                // console.log(`Session ${ sessionId }: FFmpeg stderr for conversion: `, data.toString());
-            });
-
-            ffmpeg.on('close', (code) => {
-                if (code === 0) {
-                    resolve(mulawBuffer);
-                } else {
-                    console.error(`Session ${sessionId}: FFmpeg process failed with code ${code} during MP3 to Mulaw conversion.`);
-                    reject(new Error(`ffmpeg process failed with code ${code} `));
-                }
-            });
-
-            ffmpeg.on('error', (err) => {
-                console.error(`Session ${sessionId}: FFmpeg process error during MP3 to Mulaw conversion: `, err);
-                reject(err);
-            });
-
-            ffmpeg.stdin.write(mp3Buffer);
-            ffmpeg.stdin.end();
-        });
-    },
-
-    convertMp3ToPcmInt16(mp3Buf, sessionId) {
-        return new Promise((resolve, reject) => {
-            console.log(`🔄 Converting MP3 buffer of size: ${mp3Buf.length} bytes`);
-
-            const ff = spawn('ffmpeg', [
-                '-hide_banner', '-loglevel', 'error',
-                '-i', 'pipe:0',
-                '-f', 's16le',
-                '-acodec', 'pcm_s16le',
-                '-ac', '1',          // mono
-                '-ar', '16000',      // 16 kHz
-                '-y',                // overwrite output
-                'pipe:1'
-            ]);
-
-            const chunks = [];
-            let errorOutput = '';
-
-            ff.stdout.on('data', chunk => {
-                chunks.push(chunk);
-            });
-
-            ff.stderr.on('data', data => {
-                errorOutput += data.toString();
-            });
-
-            ff.on('close', code => {
-                if (code === 0) {
-                    const buffer = Buffer.concat(chunks);
-                    const pcmArray = new Int16Array(buffer.buffer, buffer.byteOffset, buffer.length / 2);
-                    console.log(`✅ MP3 conversion successful: ${pcmArray.length} samples`);
-                    resolve(pcmArray);
-                } else {
-                    console.error(`❌ FFmpeg error: ${errorOutput} `);
-                    reject(new Error(`FFmpeg exited with code ${code}: ${errorOutput} `));
-                }
-            });
-
-            ff.on('error', error => {
-                console.error('❌ FFmpeg spawn error:', error);
-                reject(error);
-            });
-
-            ff.stdin.on('error', error => {
-                console.error('❌ FFmpeg stdin error:', error);
-            });
-
-            ff.stdin.end(mp3Buf);
-        });
-    },
+    convertMp3ToPcmInt16: audioUtilsModule.convertMp3ToPcmInt16,
 
     streamMulawAudioToLiveKit: function (room, mulawBuffer, session) {
         const pcm = mulawBuffer;
@@ -1528,69 +1236,9 @@ const audioUtils = {
         return addAudioChunk;
     },
 
-    streamMulawAudioToTwilio: function (ws, mulawBuffer, session) {
-        let streamSid = session.streamSid
-        const CHUNK_SIZE_MULAW = 800; // 20ms of 8khz mulaw (8000 samples/sec * 0.020 sec = 160 samples, 1 byte/sample)
-        let offset = 0;
-        session.isAIResponding = true;
-        session.interruption = false; // Reset interruption flag when AI starts speaking
+    streamMulawAudioToTwilio: audioUtilsModule.streamMulawAudioToTwilio,
 
-        const stopFunction = () => {
-            console.log(`Session ${session.id}: Stopping outgoing audio stream...`);
-            session.interruption = true; // Mark for immediate stop
-            session.isAIResponding = false;
-            offset = mulawBuffer.length; // Force stop by setting offset to end
-            session.currentAudioStream = null; // Clear reference
-        };
-
-        session.currentAudioStream = { stop: stopFunction }; // Store stop function for external interruption
-
-        function sendChunk() {
-            if (offset >= mulawBuffer.length || session.interruption) {
-                console.log(`Session ${session.id}: Audio stream ended or interrupted.`);
-                session.isAIResponding = false;
-                session.currentAudioStream = null;
-                return;
-            }
-
-            const chunk = mulawBuffer.slice(offset, offset + CHUNK_SIZE_MULAW);
-            if (chunk.length === 0) { // Handle case where the last chunk is empty
-                console.log(`Session ${session.id}: Last chunk is empty, ending stream.`);
-                session.isAIResponding = false;
-                session.currentAudioStream = null;
-                return;
-            }
-
-            try {
-                ws.send(JSON.stringify({
-                    event: 'media',
-                    streamSid,
-                    media: { payload: chunk.toString('base64') }
-                }));
-                offset += CHUNK_SIZE_MULAW;
-                // Schedule next chunk slightly faster than chunk duration for continuous flow
-                setTimeout(sendChunk, 100); // 180ms delay for 200ms chunk
-            } catch (error) {
-                console.error(`Session ${session.id}: Error sending audio chunk: `, error);
-                stopFunction(); // Stop on error
-            }
-        }
-        sendChunk(); // Start sending chunks
-    },
-
-    universalStreamAudio: async function (connection, buffer, session) {
-        if (connection instanceof WebSocket) {
-            const mulawBuffer = await audioUtils.convertMp3ToMulaw(buffer, session.id);
-            if (mulawBuffer) {
-                console.log("Streaming the audio on the call via websockets")
-                this.streamMulawAudioToTwilio(connection, mulawBuffer, session)
-            }
-        } else if (connection instanceof Room) {
-            const pcmBuffer = await audioUtils.convertMp3ToPcmInt16(buffer, session.id)
-            console.log("Streaming the audio on the room")
-            this.streamMulawAudioToLiveKit(connection, pcmBuffer, session)
-        }
-    }
+    universalStreamAudio: audioUtilsModule.universalStreamAudio
 };
 
 // AI Processing
@@ -1772,226 +1420,11 @@ const aiProcessing = {
     // },
 
     async processInput(input, session) {
-        // Initialize conversation history if not exists
-        if (!session.messages) {
-            session.messages = [];
-        }
-
-        // Add user message to conversation
-        session.messages.push({
-            role: "user",
-            parts: [{ text: `${input.message}   --end:${input.input_channel}` }]
-        });
-        // console.log("session.messages", session.messages);
-        // console.log("Proooommmmppppttttttttzaaazzzzzz", session.prompt)
-
-        // Build the request for Gemini
-        const geminiRequest = {
-            contents: session.messages,
-            tools: session.tools.length > 0 ? [{ functionDeclarations: session.tools }] : undefined,
-            // tools: toolDefinitions,
-            safetySettings: [
-                { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-                { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-                { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-                { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
-            ],
-            generationConfig: {
-                temperature: 0.2
-            },
-            systemInstruction: session.prompt ? {
-                parts: [{ text: session.prompt }]
-            } : undefined
-        };
-
-        let processTimeStart = Date.now();
-        let response = await services.gemini.generateContent(geminiRequest);
-        let processTime = Date.now() - processTimeStart;
-        console.log("LLmProcessTime", processTime);
-
-        const candidate = response.response.candidates[0];
-        const assistantContent = candidate.content;
-
-        // Add assistant's response to conversation history
-        session.messages.push({
-            role: "model",
-            parts: assistantContent.parts
-        });
-
-        // Check if the assistant wants to call a function
-        const functionCalls = assistantContent.parts.filter(part => part.functionCall);
-
-        if (functionCalls.length > 0) {
-            // Process each function call
-            const functionResponses = [];
-
-            for (const part of functionCalls) {
-                let toolResult;
-                const functionCall = part.functionCall;
-                const args = functionCall.args || {};
-
-                if (functionCall.name === "getAllProducts") {
-                    toolResult = await functions.getAllProducts();
-                } else if (functionCall.name === "getUserDetailsByPhoneNo") {
-                    toolResult = await functions.getUserDetailsByPhoneNo(args.phoneNo);
-                } else if (functionCall.name === "getAllOrders") {
-                    toolResult = await functions.getAllOrders(args.phoneNo);
-                } else if (functionCall.name === "getOrderById") {
-                    toolResult = await functions.getOrderById(args.orderId);
-                } else if (functionCall.name === "cancelOrder") {
-                    console.log("cancel order")
-                    const options = {
-                        reason: args.reason || "OTHER",
-                        email: args.email !== undefined ? args.email : true,
-                        refund: args.refund !== undefined ? args.refund : true,
-                        restock: args.restock !== undefined ? args.restock : true
-                    };
-                    toolResult = await functions.cancelOrder(args.orderId, options);
-                } else if (functionCall.name === "hangUp") {
-                    console.log('Hanging Up The Calllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll')
-                    toolResult = await functions.endCall(session.room);
-                    // toolResult = "Talk to the User"
-                } else {
-                    toolResult = { error: "Unknown function requested." };
-                }
-
-                // Add function response
-                functionResponses.push({
-                    functionResponse: {
-                        name: functionCall.name,
-                        response: { toolResult }
-                    }
-                });
-            }
-
-            // Add function responses to conversation
-            session.messages.push({
-                role: "user",
-                parts: functionResponses
-            });
-
-            // Get final response after function execution
-            const finalRequest = {
-                contents: session.messages,
-                tools: toolDefinitions ? [{ functionDeclarations: toolDefinitions }] : undefined,
-                generationConfig: {
-                    // maxOutputTokens: CONFIG.GPT_MAX_TOKENS || 2048,
-                    temperature: 0.5
-                },
-                systemInstruction: session.prompt ? {
-                    parts: [{ text: session.prompt }]
-                } : undefined
-            };
-            let ll = Date.now()
-            response = await services.gemini.generateContent(finalRequest);
-            console.log("Response time two", Date.now() - ll)
-            const finalCandidate = response.response.candidates[0];
-            const finalAssistantContent = finalCandidate.content;
-
-            session.messages.push({
-                role: "model",
-                parts: finalAssistantContent.parts
-            });
-
-            // Parse and return the final response
-            const textPart = finalAssistantContent.parts.find(part => part.text);
-            const responseText = textPart ? textPart.text : "";
-
-            let parsedData;
-            try {
-                parsedData = JSON.parse(responseText);
-                return {
-                    processedText: parsedData.response,
-                    outputType: parsedData.output_channel
-                }; 
-            } catch (error) {
-
-                console.log("JSON Response is not completed", responseText)
-                return {
-                    processedText: responseText || "Sorry, I had trouble understanding. Could you please rephrase?",
-                    outputType: input.input_channel
-                };
-            }
-        }
-
-        // No function calls - return direct response
-        const textPart = assistantContent.parts.find(part => part.text);
-        const responseText = textPart ? textPart.text : "";
-
-        let parsedData;
-        try {
-            parsedData = JSON.parse(responseText);
-            return {
-                processedText: parsedData.response,
-                outputType: parsedData.output_channel
-            };
-        } catch (error) {
-            console.log("error", parsedData)
-            return {
-                processedText: responseText || "Sorry, I had trouble understanding. Could you please rephrase?",
-                outputType: input.input_channel
-            };
-        }
+        return aiService.processInput(input, session, functions, toolDefinitions);
     },
 
     async addSystemMessage(input, session) {
-        // Initialize conversation history if not exists
-        if (!session.messages) {
-            session.messages = [];
-        }
-
-        // Add user message to conversation
-        session.messages.push({
-            role: "system",
-            parts: [{ text: `${input.message}` }]
-        });
-        // console.log("session.messages", session.messages);
-
-        // Build the request for Gemini
-        const geminiRequest = {
-            contents: session.messages,
-            tools: session.tools.length > 0 ? [{ functionDeclarations: session.tools }] : undefined,
-            // tools: toolDefinitions,
-            generationConfig: {
-                temperature: 0.2
-            },
-            systemInstruction: session.prompt ? {
-                parts: [{ text: session.prompt }]
-            } : undefined
-        };
-
-        let processTimeStart = Date.now();
-        let response = await services.gemini.generateContent(geminiRequest);
-        let processTime = Date.now() - processTimeStart;
-        console.log("LLmProcessTime", processTime);
-
-        const candidate = response.response.candidates[0];
-        const assistantContent = candidate.content;
-
-        // Add assistant's response to conversation history
-        session.messages.push({
-            role: "model",
-            parts: assistantContent.parts
-        });
-
-        // No function calls - return direct response
-        const textPart = assistantContent.parts.find(part => part.text);
-        const responseText = textPart ? textPart.text : "";
-
-        let parsedData;
-        try {
-            parsedData = JSON.parse(responseText);
-            return {
-                processedText: parsedData.response,
-                outputType: parsedData.output_channel
-            };
-        } catch (error) {
-            console.log("error", parsedData)
-            return {
-                processedText: responseText || "Sorry, I had trouble understanding. Could you please rephrase?",
-                outputType: input.input_channel
-            };
-        }
+        return aiService.addSystemMessage(input, session);
     },
 
     async synthesizeSpeech2(text, sessionId) {
@@ -2234,30 +1667,7 @@ const aiProcessing = {
     },
 
     async processTextToSpeech(processedText, session) {
-        const TTSTimeStart = Date.now();
-
-        try {
-            // Initialize streaming to LiveKit (same as before)
-            const addAudioChunk = audioUtils.streamPCMAudioToLiveKit(
-                session.room,
-                session,
-                () => {
-                    const TTSTime = Date.now() - TTSTimeStart;
-                    console.log(`Session ${session.id}: Complete TTS pipeline time: ${TTSTime} ms`);
-                }
-            );
-
-            // Start Live TTS streaming synthesis
-            await aiProcessing.synthesizeSpeechStream(
-                processedText,
-                session.id,
-                addAudioChunk
-            );
-
-        } catch (error) {
-            console.error(`Session ${session.id}: Live TTS streaming failed: `, error);
-            throw error;
-        }
+        return aiService.processTextToSpeech(processedText, session);
     }
 
 };
@@ -2481,7 +1891,15 @@ app.post('/create-room', async (req, res) => {
         session.caller = userData;
 
         // 4. Set up room event handlers
-        setupRoomEventHandlers(room, session);
+        realtime.setupRoomEventHandlers(room, session, {
+            RoomEvent,
+            sendSystemMessage,
+            setupAudioProcessingForParticipant,
+            setChannel,
+            handleTrackSubscribed,
+            handleChatInput: realtime.handleChatInput,
+            sessionManager
+        });
 
         // 5. Generate token for the user (participant)
         const userToken = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
@@ -2505,151 +1923,19 @@ app.post('/create-room', async (req, res) => {
     }
 });
 
-app.post('/call', (req, res) => {
-    const sid = req.body.twilio_sid
-    const token = req.body.twilio_token
-    let twilioc = services.twilio
-    if (sid && token) {
-        twilioc = new twilio(sid, token)
-        console.log("New twilio client created for the new bulk user")
-    }
-    console.log(req.body.to);
-    console.log(`https://call-server.shipfast.studio/livekit/voice?name=${encodeURIComponent(req.body.name)}&prompt=${encodeURIComponent(req.body.prompt)}&recall_url=${encodeURIComponent(req.body.recall_url)}`)
-    twilioc.calls.create({
-        url: `https://call-server.shipfast.studio/livekit/voice?name=${encodeURIComponent(req.body.name)}&prompt=${encodeURIComponent(req.body.prompt)}&recall_url=${encodeURIComponent(req.body.recall_url)}`, // Endpoint that returns TwiML instructions
-        to: req.body.to, // Recipient's phone number
-        from: req.body.from || '+17752888591'// Your Twilio number
-    })
-        .then(call => console.log(call.sid));
-    
-    res.status(201).json({"message":"Called this user"});
-})
+const telephony = require('./modules/telephony');
+app.post('/call', (req, res) => telephony.handleOutboundCall(req, res, services, twilio));
 
-app.post('/voice', (req, res) => {
-    let callerNumber = req.body.From;
-    if (req.body.Caller === '+17752888591') {
-        callerNumber = req.body.To;
-    }
-    let name = req.query.name;
-    let prompt = req.query.prompt;
-    let recall_url = req.query.recall_url;
-    console.log(name,prompt,recall_url)
-    const wsUrl = `wss://call-server.shipfast.studio/websocket/`;
-
-    // { name: 'Prompt', value: req.body.prompt}, { name: 'name', value: req.body.name}
-
-    const response = new twiml.VoiceResponse();
-    const connect = response.connect();
-    const stream = connect.stream({ url: wsUrl });
-    stream.parameter({ name: 'caller', value: callerNumber })
-    stream.parameter({ name: 'name', value: decodeURIComponent(name) })
-    stream.parameter({ name: 'prompt', value: decodeURIComponent(prompt) })
-    stream.parameter({ name: 'recall_url', value: decodeURIComponent(recall_url) })
-    // response.start().stream({ url: 'wss://a31a-2401-4900-1c80-9450-6c61-8e74-1d49-209a.ngrok-free.app', track:'both' });
-    response.say("Have a Good day");
-    // response.pause({ length: 60 })
-    res.type('text/xml');
-    res.send(response.toString());
-});
+app.post('/voice', (req, res) => telephony.handleVoiceWebhook(req, res, twilio));
 
 // app.post('/bulk-call', (req, res) => {
 
 // })
 
 
-// Setup room event handlers
-function setupRoomEventHandlers(room, session) {
-    room.on(RoomEvent.ParticipantConnected, (participant) => {
-        console.log(`Session ${session.id}: Participant connected: ${participant.identity} `);
-        // console.log("prompt: ", session.prompt)
-        // console.log("tools: ", session.tools)
+const realtime = require('./modules/realtime');
 
-        sendSystemMessage(session, `${session.name} have joined via WebCall`, "audio");
-
-        // Initialize audio processing for this participant
-        setupAudioProcessingForParticipant(participant, session);
-    });
-
-    room.on(RoomEvent.ParticipantDisconnected, async (participant) => {
-        console.log(`Session ${session.id}: Participant disconnected: ${participant.identity} `);
-        sessionManager.cleanupSession(session)
-        await room.disconnect();
-        console.log("room disconnected")
-    });
-
-    room.on(RoomEvent.Disconnected, () => {
-        console.log(`Session ${session.id}: Room disconnected`);
-        // sessionManager.deleteSession(session.id);
-    });
-
-    room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
-        handleTrackSubscribed(track, publication, participant, session);
-        setChannel(room, session, "audio")
-    });
-
-    room.on(RoomEvent.ChatMessage, (message, participant) => {
-        // console.log(payload)
-        handleChatInput(message, participant, session)
-    })
-}
-
-async function handleChatInput(message, participant, session) {
-    try {
-        // if (!payload || payload.length === 0) {
-        //     console.warn(`⚠️ Received empty payload from ${ participant.identity } `);
-        //     return;
-        // }
-        // console.log("payload", payload)
-        console.log(message)
-        const data = JSON.parse(message);
-        console.log("data", data)
-        if (data.type === 'chat') {
-            console.log(`💬 Chat from ${participant.identity}: ${data.content} `);
-
-            // Optionally: send an AI response back
-            handleIncomingChat(data.content, participant, session);
-        }
-    } catch (err) {
-        console.error('❌ Error parsing chat payload:', err);
-    }
-}
-
-async function handleIncomingChat(message, participant, session) {
-    // 🧠 Use OpenAI, Gemini, etc. to generate a response
-    if (!session) {
-        return res.status(404).json({ error: 'Session not found' });
-    }
-
-    if (!session.availableChannel.includes("chat")) {
-        setChannel(session, "chat")
-    }
-
-    const { processedText, outputType } = await aiProcessing.processInput(
-        { message: message, input_channel: 'chat' },
-        session
-    );
-
-    if (outputType === 'chat') {
-        const replyPayload = JSON.stringify({
-            type: 'chat',
-            content: aiReply,
-            from: 'ai-agent',
-        });
-        // Send the response back to the participant
-        session.room.localParticipant.publishData(
-            replyPayload,
-            Livekit.DataPacket_Kind.RELIABLE,
-            [participant.sid]  // Target only the sender
-        );
-    } else if (outputType === 'audio') {
-        const audioBuffer = await aiProcessing.synthesizeSpeech3(processedText, session.id);
-        if (audioBuffer) {
-
-            audioUtils.streamMulawAudioToLiveKit(session.room, audioBuffer, session);
-
-        }
-    }
-}
+// Chat handlers moved to modules/realtime.js
 
 async function handleTrackSubscribed(track, publication, participant, session) {
     if (track.kind === TrackKind.KIND_AUDIO) {
@@ -2717,7 +2003,8 @@ function setupAudioProcessingForParticipant(participant, session) {
     //     'pipe:1'
     // ]);
 
-    session.vadProcess = spawn(process.env.PYTHON_PATH || 'python3', ['vad.py']);
+    const { startVADProcess } = require('./modules/vad');
+    session.vadProcess = startVADProcess();
     // console.log('VAD process PID:', session.vadProcess);
     session.ffmpegProcess.stdout.pipe(session.vadProcess.stdin);
     session.ffmpegProcess.stderr.on('data', (data) => {
@@ -3423,7 +2710,8 @@ wss.on('connection', (ws, req) => {
                     'pipe:1' // Output to stdout
                 ]);
 
-                session.vadProcess = spawn(process.env.PYTHON_PATH || 'python3', ['vad.py']); // Use env var for Python path
+                const { startVADProcess } = require('./modules/vad');
+                session.vadProcess = startVADProcess(); // Use module wrapper
                 session.ffmpegProcess.stdout.pipe(session.vadProcess.stdin); // Pipe FFmpeg output to VAD input
                 session.vadProcess.stdout.on('data', (vadData) => {
                     // console.log("getting audio")
