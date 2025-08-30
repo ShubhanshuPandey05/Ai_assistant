@@ -4,27 +4,21 @@ const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 const { PollyClient, SynthesizeSpeechCommand } = require("@aws-sdk/client-polly");
-const OpenAI = require("openai");
 const twilio = require('twilio');
-const { twiml } = require('twilio');
-const SHOPIFY_STORE_URL = process.env.SHOPIFY_STORE_URL;
-const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
-const graphqlEndpoint = `https://${SHOPIFY_STORE_URL}/admin/api/2025-07/graphql.json`;
-// gRPC client now imported from modules/turnDetector
-const { Transform } = require('stream');
+// const { twiml } = require('twilio');
+const { SHOPIFY_STORE_URL, SHOPIFY_ACCESS_TOKEN, getShopifyGraphQLEndpoint, LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET } = require('./config');
+const graphqlEndpoint = getShopifyGraphQLEndpoint('2025-07');
 const WebSocket = require('ws');
-const { createClient, LiveTTSEvents, LiveClient } = require('@deepgram/sdk');
+const { createClient, LiveTTSEvents } = require('@deepgram/sdk');
 const deepgramTts = createClient(process.env.DEEPGRAM_API);
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 const bodyParser = require('body-parser');
-// const { MessagingResponse } = require('twilio');
 const shopifyService = require('./services/shopify');
 const audioUtilsModule = require('./utils/audio');
 const aiService = require('./services/ai');
 
 // LiveKit imports
 const { RoomServiceClient, AccessToken } = require('livekit-server-sdk');
-const { Room, RoomEvent, RemoteParticipant, LocalParticipant, AudioPresets, VideoPresets, TrackSource, AudioSource, LocalAudioTrack, AudioFrame, TrackKind, AudioStream } = require('@livekit/rtc-node');
+const { Room, RoomEvent, TrackSource, AudioSource, LocalAudioTrack, AudioFrame, TrackKind, AudioStream } = require('@livekit/rtc-node');
 const NC = require('@livekit/noise-cancellation-node');
 
 const { client: turnDetector } = require('./modules/turnDetector');
@@ -33,126 +27,11 @@ const FRAME_SMP = 480;
 const FRAME_BYTES = FRAME_SMP * 2;
 
 // LiveKit configuration
-const LIVEKIT_URL = process.env.LIVEKIT_URL || 'ws://localhost:7880';
-const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || 'devkey';
-const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || 'secret';
 
 const roomService = new RoomServiceClient(LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET);
 
-const toolDefinitions = [
-    {
-        name: "getAllProducts",
-        description: "Get all available products from the catalog",
-        parameters: {
-            type: "object",
-            properties: {},
-            required: []
-        }
-    },
-    {
-        name: "getUserDetailsByPhoneNo",
-        description: "Get user details by phone number",
-        parameters: {
-            type: "object",
-            properties: {
-                phoneNo: {
-                    type: "string",
-                    description: "User's phone number"
-                }
-            },
-            required: ["phoneNo"]
-        }
-    },
-    {
-        name: "getAllOrders",
-        description: "Get all orders of that customer from the system",
-        parameters: {
-            type: "object",
-            properties: {
-                phoneNo: {
-                    type: "string",
-                    description: "User's phone number"
-                }
-            },
-            required: ["phoneNo"]
-        }
-    },
-    {
-        name: "getOrderById",
-        description: "Get order details by order ID",
-        parameters: {
-            type: "object",
-            properties: {
-                orderId: {
-                    type: "string",
-                    description: "The unique order identifier"
-                }
-            },
-            required: ["orderId"]
-        }
-    },
-    {
-        name: "hangUp",
-        description: "Hang up the call",
-        parameters: {
-            type: "object",
-            properties: {},
-            required: []
-        }
-    },
-    {
-        "name": "cancelOrder",
-        "description": "Cancel a Shopify order with specified options. This function can cancel an order, issue refunds, restock items, and send notification emails to customers.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "orderId": {
-                    "type": "string",
-                    "description": "The Shopify order ID to cancel. Can be either a numeric ID or full GraphQL ID."
-                },
-                "reason": {
-                    "type": "string",
-                    "description": "The reason for cancelling the order",
-                    "enum": ["CUSTOMER", "FRAUD", "INVENTORY", "DECLINED", "OTHER"],
-                    "default": "OTHER"
-                },
-                "email": {
-                    "type": "boolean",
-                    "description": "Whether to send a cancellation email to the customer",
-                    "default": true
-                },
-                "refund": {
-                    "type": "boolean",
-                    "description": "Whether to issue a refund for the cancelled order",
-                    "default": true
-                },
-                "restock": {
-                    "type": "boolean",
-                    "description": "Whether to restock the cancelled items back to inventory",
-                    "default": true
-                }
-            },
-            "required": ["orderId"]
-        }
-    },
-    {
-        "name": "checkOrderCancellable",
-        "description": "Check if a Shopify order can be cancelled. This function verifies the order status and returns whether cancellation is possible along with the reason if it's not cancellable.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "orderId": {
-                    "type": "string",
-                    "description": "The Shopify order ID to check. Can be either a numeric ID or full GraphQL ID."
-                }
-            },
-            "required": ["orderId"]
-        }
-    }
-
-];
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_AI);
+const { toolDefinitions } = require('./config/tools');
+const { userStorage } = require('./modules/userStore');
 
 // Service Initialization
 const services = {
@@ -163,23 +42,7 @@ const services = {
             accessKeyId: process.env.accessKeyId,
             secretAccessKey: process.env.secretAccessKey,
         },
-    }),
-    openai: new OpenAI({ apiKey: process.env.OPEN_AI }),
-    gemini: genAI.getGenerativeModel({
-        model: "gemini-2.5-flash-lite",  // or "gemini-2.0-flash-thinking-exp"
-        // Optional: Add safety settings
-        safetySettings: [
-            {
-                category: "HARM_CATEGORY_HARASSMENT",
-                threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            },
-            {
-                category: "HARM_CATEGORY_HATE_SPEECH",
-                threshold: "BLOCK_MEDIUM_AND_ABOVE"
-            }
-        ]
     })
-    // openai: new OpenAI({ apiKey: 'sk-abcdef1234567890abcdef1234567890abcdef12' })
 };
 
 const functions = {
@@ -288,75 +151,6 @@ const functions = {
             ordersCount: user.ordersCount
         };
     },
-
-    //     async getAllOrders(cursor = null) {
-    //         const query = `
-    //     {
-    //       orders(first: 50${cursor ? `, after: "${cursor}"` : ''}) {
-    //         edges {
-    //           cursor
-    //           node {
-    //             id
-    //             name
-    //             email
-    //             phone
-    //             totalPriceSet {
-    //               shopMoney {
-    //                 amount
-    //                 currencyCode
-    //               }
-    //             }
-    //             createdAt
-    //             fulfillmentStatus
-    //             lineItems(first: 10) {
-    //               edges {
-    //                 node {
-    //                   title
-    //                   quantity
-    //                 }
-    //               }
-    //             }
-    //           }
-    //         }
-    //         pageInfo {
-    //           hasNextPage
-    //         }
-    //       }
-    //     }
-    //   `;
-
-    //         const response = await fetch(graphqlEndpoint, {
-    //             method: 'POST',
-    //             headers: {
-    //                 'Content-Type': 'application/json',
-    //                 'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
-    //             },
-    //             body: JSON.stringify({ query }),
-    //         });
-
-    //         const data = await response.json();
-    //         if (!data.data || !data.data.orders) return { orders: [], hasNextPage: false, lastCursor: null };
-
-    //         const orders = data.data.orders.edges.map(edge => ({
-    //             id: edge.node.id,
-    //             name: edge.node.name,
-    //             email: edge.node.email,
-    //             phone: edge.node.phone,
-    //             total: edge.node.totalPriceSet.shopMoney.amount,
-    //             currency: edge.node.totalPriceSet.shopMoney.currencyCode,
-    //             createdAt: edge.node.createdAt,
-    //             fulfillmentStatus: edge.node.fulfillmentStatus,
-    //             lineItems: edge.node.lineItems.edges.map(itemEdge => ({
-    //                 title: itemEdge.node.title,
-    //                 quantity: itemEdge.node.quantity
-    //             }))
-    //         }));
-
-    //         const hasNextPage = data.data.orders.pageInfo.hasNextPage;
-    //         const lastCursor = data.data.orders.edges.length > 0 ? data.data.orders.edges[data.data.orders.edges.length - 1].cursor : null;
-
-    //         return { orders, hasNextPage, lastCursor };
-    //     },
 
     async getAllOrders(phone, cursor = null) {
         try {
@@ -634,76 +428,7 @@ const functions = {
                 };
             }
         }
-    },
-
-    // async checkOrderCancellable(orderId) {
-    //     try {
-    //         if (!orderId.startsWith("gid://")) {
-    //             orderId = `gid://shopify/Order/${orderId}`;
-    //         }
-
-    //         const query = `
-    //         query CheckOrderCancellable($id: ID!) {
-    //           order(id: $id) {
-    //             id
-    //             name
-    //             cancelledAt
-    //             financialStatus
-    //             fulfillmentStatus
-    //             fulfillments {
-    //               status
-    //             }
-    //           }
-    //         }`;
-
-    //         const variables = { id: orderId };
-
-    //         const response = await fetch(graphqlEndpoint, {
-    //             method: 'POST',
-    //             headers: {
-    //                 'Content-Type': 'application/json',
-    //                 'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
-    //             },
-    //             body: JSON.stringify({ query, variables })
-    //         });
-
-    //         const data = await response.json();
-
-    //         if (!data.data?.order) {
-    //             return { cancellable: false, reason: "Order not found" };
-    //         }
-
-    //         const order = data.data.order;
-
-    //         // Already cancelled
-    //         if (order.cancelledAt) {
-    //             return { cancellable: false, reason: "Order already cancelled" };
-    //         }
-
-    //         // Check if already fulfilled
-    //         const hasCompleteFulfillments = order.fulfillments?.some(f => f.status === 'SUCCESS');
-    //         if (hasCompleteFulfillments) {
-    //             return {
-    //                 cancellable: false,
-    //                 reason: "Order has completed fulfillments - consider refunding instead"
-    //             };
-    //         }
-
-    //         return {
-    //             cancellable: true,
-    //             order: {
-    //                 id: order.id,
-    //                 name: order.name,
-    //                 financialStatus: order.financialStatus,
-    //                 fulfillmentStatus: order.fulfillmentStatus
-    //             }
-    //         };
-
-    //     } catch (err) {
-    //         console.error("checkOrderCancellable error:", err);
-    //         return { cancellable: false, reason: "Error checking order status" };
-    //     }
-    // }
+    }
 }
 
 // Wire external service implementations without changing names
@@ -720,20 +445,7 @@ try {
 }
 
 // Configuration Constants
-const CONFIG = {
-    MAX_RECONNECT_ATTEMPTS: 5,
-    RECONNECT_DELAY: 1000,
-    AUDIO_CHUNK_SIZE: 1600,
-    DEEPGRAM_STREAM_CHUNK_SIZE: 400,
-    SAMPLE_RATE: 16000,
-    AUDIO_SAMPLE_RATE: 8000,
-    POLLY_VOICE_ID: "Joanna",
-    POLLY_OUTPUT_FORMAT: "mp3",
-    GPT_MODEL: "gpt-4o-mini",
-    GPT_MAX_TOKENS: 250,
-    GPT_TEMPERATURE: 0.1,
-    DENOISER_RATE: 48000,
-};
+const { CONFIG } = require('./config/constants');
 
 // Performance Monitoring
 const performance = {
@@ -768,197 +480,6 @@ const performance = {
         }
     }
 };
-
-function generateRandomIdFromData(data, length = 10) {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    let randomStr = '';
-    for (let i = 0; i < length; i++) {
-        randomStr += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return `${data}-${randomStr}`;
-}
-
-// User Storage
-class UserStorage {
-    constructor() {
-        this.users = []; // In-memory storage array
-    }
-
-    // User class definition
-    static createUser(userData) {
-        return {
-            Name: userData.Name || '',
-            UserId: userData.UserId || '',
-            Phone: userData.Phone || '',
-            PastSessionId: userData.PastSessionId || [],
-            ActiveSessionId: userData.ActiveSessionId || '',
-            Email: userData.Email || ''
-        };
-    }
-
-    // Add a new user
-    addUser(userData) {
-        const user = UserStorage.createUser(userData);
-
-        // Check if user already exists (by UserId or Phone or Email)
-        if (this.findUser(user.UserId) || this.findUser(user.Phone) || this.findUser(user.Email)) {
-            throw new Error('User already exists with this UserId, Phone, or Email');
-        }
-
-        this.users.push(user);
-        return user;
-    }
-
-    // Universal selector - find user by ANY parameter
-    findUser(searchValue) {
-        if (!searchValue) return null;
-
-        return this.users.find(user => {
-            // Search through all user fields
-            return user.Name === searchValue ||
-                user.UserId === searchValue ||
-                user.Phone === searchValue ||
-                user.Email === searchValue ||
-                user.ActiveSessionId === searchValue ||
-                (Array.isArray(user.PastSessionId) && user.PastSessionId.includes(searchValue));
-        });
-    }
-
-    // Find multiple users (returns array)
-    findUsers(searchValue) {
-        if (!searchValue) return [];
-
-        return this.users.filter(user => {
-            return user.Name === searchValue ||
-                user.UserId === searchValue ||
-                user.Phone === searchValue ||
-                user.Email === searchValue ||
-                user.ActiveSessionId === searchValue ||
-                (Array.isArray(user.PastSessionId) && user.PastSessionId.includes(searchValue));
-        });
-    }
-
-    // Search with partial matching (case-insensitive)
-    searchUsers(searchTerm) {
-        if (!searchTerm) return [];
-
-        const term = searchTerm.toLowerCase();
-        return this.users.filter(user => {
-            return user.Name.toLowerCase().includes(term) ||
-                user.UserId.toLowerCase().includes(term) ||
-                user.Phone.includes(term) ||
-                user.Email.toLowerCase().includes(term) ||
-                user.ActiveSessionId.toLowerCase().includes(term);
-        });
-    }
-
-    // Update user by any identifier
-    updateUser(identifier, updates) {
-        const user = this.findUser(identifier);
-        if (!user) {
-            throw new Error('User not found');
-        }
-
-        // Update fields
-        Object.keys(updates).forEach(key => {
-            if (user.hasOwnProperty(key)) {
-                user[key] = updates[key];
-            }
-        });
-
-        return user;
-    }
-
-    // Delete user by any identifier
-    deleteUser(identifier) {
-        const index = this.users.findIndex(user => {
-            return user.Name === identifier ||
-                user.UserId === identifier ||
-                user.Phone === identifier ||
-                user.Email === identifier ||
-                user.ActiveSessionId === identifier ||
-                (Array.isArray(user.PastSessionId) && user.PastSessionId.includes(identifier));
-        });
-
-        if (index === -1) {
-            throw new Error('User not found');
-        }
-
-        return this.users.splice(index, 1)[0];
-    }
-
-    // Get all users
-    getAllUsers() {
-        return [...this.users]; // Return copy to prevent direct modification
-    }
-
-    // Convert to JSON string
-    toJSON() {
-        return JSON.stringify(this.users, null, 2);
-    }
-
-    // Load from JSON string
-    fromJSON(jsonString) {
-        try {
-            const data = JSON.parse(jsonString);
-            this.users = data.map(userData => UserStorage.createUser(userData));
-            return this.users;
-        } catch (error) {
-            throw new Error('Invalid JSON format');
-        }
-    }
-
-    // Load from JSON object/array
-    loadFromData(data) {
-        if (Array.isArray(data)) {
-            this.users = data.map(userData => UserStorage.createUser(userData));
-        } else {
-            throw new Error('Data must be an array of user objects');
-        }
-        return this.users;
-    }
-
-    // Add session to user's past sessions
-    addPastSession(identifier, sessionId) {
-        const user = this.findUser(identifier);
-        if (!user) {
-            throw new Error('User not found');
-        }
-
-        if (!Array.isArray(user.PastSessionId)) {
-            user.PastSessionId = [];
-        }
-
-        if (!user.PastSessionId.includes(sessionId)) {
-            user.PastSessionId.push(sessionId);
-        }
-
-        return user;
-    }
-
-    // Set active session and move current active to past
-    setActiveSession(identifier, newSessionId) {
-        const user = this.findUser(identifier);
-        if (!user) {
-            throw new Error('User not found');
-        }
-
-        // Move current active session to past sessions
-        if (user.ActiveSessionId) {
-            this.addPastSession(identifier, user.ActiveSessionId);
-        }
-
-        user.ActiveSessionId = newSessionId;
-        return user;
-    }
-
-    // Get user count
-    getUserCount() {
-        return this.users.length;
-    }
-}
-
-const userStorage = new UserStorage();
 
 // Example 1: Add users
 try {
@@ -1002,6 +523,7 @@ const audioUtils = {
 
     convertMp3ToPcmInt16: audioUtilsModule.convertMp3ToPcmInt16,
 
+    // Currently it is Not Used Any Where
     streamMulawAudioToLiveKit: function (room, mulawBuffer, session) {
         const pcm = mulawBuffer;
         const CHUNK_SIZE_MULAW = 800;
@@ -1118,6 +640,7 @@ const audioUtils = {
             });
     },
 
+    // Currently it is Not Used Any Where
     streamPCMAudioToLiveKit: function (room, session, onComplete) {
         const CHUNK_SIZE_PCM = 800; // Adjust based on your needs
         session.isAIResponding = true;
@@ -1236,6 +759,7 @@ const audioUtils = {
         return addAudioChunk;
     },
 
+    // Currently it is Not Used Any Where
     streamMulawAudioToTwilio: audioUtilsModule.streamMulawAudioToTwilio,
 
     universalStreamAudio: audioUtilsModule.universalStreamAudio
@@ -1497,6 +1021,7 @@ const aiProcessing = {
         }
     },
 
+    // Currently it is Not Used Any Where
     async synthesizeSpeech(text, sessionId) {
         if (!text) {
             console.error(`Session ${sessionId}: No text provided for synthesis.`);
@@ -1543,6 +1068,7 @@ const aiProcessing = {
         }
     },
 
+    // Currently it is Not Used Any Where
     async synthesizeSpeechStream(text, sessionId, onChunkCallback) {
         if (!text) {
             console.error(`Session ${sessionId}: No text provided for synthesis.`);
@@ -1666,6 +1192,7 @@ const aiProcessing = {
         }
     },
 
+    // Currently it is Not Used Any Where
     async processTextToSpeech(processedText, session) {
         return aiService.processTextToSpeech(processedText, session);
     }
@@ -1856,86 +1383,30 @@ setInterval(() => {
     });
 }, 10000);
 
-app.post('/create-room', async (req, res) => {
-    try {
-        const { roomName, participantName, userData, prompt, tool } = req.body;
-
-        if (!roomName || !participantName) {
-            return res.status(400).json({ error: 'roomName and participantName are required' });
-        }
-
-        console.log("toolssssssssssssssss", tool)
-
-        // 1. Create room
-        await roomService.createRoom({
-            name: roomName,
-            emptyTimeout: 20 * 60, // 20 minutes
-            maxParticipants: 2,
-        });
-
-        // 2. Join room as agent
-        const room = new Room();
-        const agentToken = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
-            identity: 'AI-Agent',
-        });
-        agentToken.addGrant({ roomJoin: true, room: roomName });
-        const agentJwt = await agentToken.toJwt();
-
-        await room.connect(LIVEKIT_URL, agentJwt, {
-            autoSubscribe: true
-        });
-
-        // 3. Create session for this room
-        const session = sessionManager.createSession(roomName, userData, prompt, tool);
-        setChannel(room, session, "audio")
-        session.caller = userData;
-
-        // 4. Set up room event handlers
-        realtime.setupRoomEventHandlers(room, session, {
-            RoomEvent,
-            sendSystemMessage,
-            setupAudioProcessingForParticipant,
-            setChannel,
-            handleTrackSubscribed,
-            handleChatInput: realtime.handleChatInput,
-            sessionManager
-        });
-
-        // 5. Generate token for the user (participant)
-        const userToken = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
-            identity: participantName
-        });
-        userToken.addGrant({ roomJoin: true, room: roomName });
-        const userJwt = await userToken.toJwt();
-
-        // 6. Respond with token and session data
-        res.json({
-            success: true,
-            sessionId: session.id,
-            message: 'Room created, agent joined, and token generated',
-            token: userJwt,
-            prompt: prompt
-        });
-
-    } catch (error) {
-        console.error('Error creating room and generating token:', error);
-        res.status(500).json({ error: 'Failed to create room and generate token' });
-    }
-});
-
 const telephony = require('./modules/telephony');
-app.post('/call', (req, res) => telephony.handleOutboundCall(req, res, services, twilio));
-
-app.post('/voice', (req, res) => telephony.handleVoiceWebhook(req, res, twilio));
-
-// app.post('/bulk-call', (req, res) => {
-
-// })
-
-
 const realtime = require('./modules/realtime');
-
-// Chat handlers moved to modules/realtime.js
+const { attachRoutes } = require('./routes');
+attachRoutes(app, {
+    roomService,
+    Room,
+    AccessToken,
+    LIVEKIT_URL,
+    LIVEKIT_API_KEY,
+    LIVEKIT_API_SECRET,
+    sessionManager,
+    setChannel,
+    realtime,
+    RoomEvent,
+    sendSystemMessage,
+    setupAudioProcessingForParticipant,
+    handleTrackSubscribed,
+    aiProcessing,
+    handleOutput,
+    twilio,
+    userStorage
+});
+app.post('/call', (req, res) => telephony.handleOutboundCall(req, res, services, twilio));
+app.post('/voice', (req, res) => telephony.handleVoiceWebhook(req, res, twilio));
 
 async function handleTrackSubscribed(track, publication, participant, session) {
     if (track.kind === TrackKind.KIND_AUDIO) {
@@ -1990,19 +1461,6 @@ function setupAudioProcessingForParticipant(participant, session) {
         '-ac', '1',               // Output channel count
         'pipe:1'
     ]);
-    // session.ffmpegProcess = spawn('ffmpeg', [
-    //     '-loglevel', 'quiet',
-    //     '-f', 'mulaw',
-    //     '-ar', CONFIG.AUDIO_SAMPLE_RATE.toString(),
-    //     '-ac', '1',
-    //     '-i', 'pipe:0',
-    //     '-f', 's16le',
-    //     '-acodec', 'pcm_s16le',
-    //     '-ar', CONFIG.SAMPLE_RATE.toString(),
-    //     '-ac', '1',
-    //     'pipe:1'
-    // ]);
-
     const { startVADProcess } = require('./modules/vad');
     session.vadProcess = startVADProcess();
     // console.log('VAD process PID:', session.vadProcess);
@@ -2095,7 +1553,6 @@ function setupAudioProcessingForParticipant(participant, session) {
     connectToDeepgram(session);
 
     // Send initial announcement
-    sendInitialAnnouncement(session);
 }
 
 // Connect to Deepgram
@@ -2168,35 +1625,10 @@ function connectToDeepgram(session) {
                         }
                     })();
                 });
-                // let end = detectTurnEnd(session.currentUserUtterance)
-                // console.log("end", end)
-                // if (end) {
-                //     if (!session.isVadSpeechActive) {
-                //         await handleTurnCompletion(session);
-                //     }
-                // }
-                // else {
-                //     // console.log("turn not complete")
-                //     session.isTalking = false
-
-                //     setTimeout(async () => {
-                //         if (!session.isTalking && !session.isVadSpeechActive) {
-                //             await handleTurnCompletion(session)
-                //         }
-                //     }, 1000)
-                // }
             } else {
                 if (transcript.trim() && transcript !== session.lastInterimTranscript) {
                     session.isSpeaking = true;
                     session.lastInterimTranscript = transcript;
-                    // Send interim transcript to client via LiveKit data channel
-                    // session.room.localParticipant.publishData(
-                    //     Buffer.from(JSON.stringify({
-                    //         type: 'interim_transcript',
-                    //         transcript: transcript
-                    //     })),
-                    //     { topic: 'transcript' }
-                    // );
                 }
             }
         } catch (err) {
@@ -2220,16 +1652,6 @@ async function handleTurnCompletion(session) {
 
     session.chatHistory.push({ role: 'user', content: finalTranscript });
     session.currentUserUtterance = '';
-
-    // Send final transcript to client
-    // session.room.localParticipant.publishData(
-    //     Buffer.from(JSON.stringify({
-    //         type: 'final_transcript',
-    //         transcript: finalTranscript,
-    //         isFinal: true
-    //     })),
-    //     { topic: 'transcript' }
-    // );
 
     try {
         let LlmprocessTimeStart = Date.now()
@@ -2261,6 +1683,7 @@ function handleInterruption(session) {
     if (session.currentAudioStream && typeof session.currentAudioStream.stop === 'function') {
         try {
             session.currentAudioStream.stop();
+            console.log(`Session ${session.id}: Audio stream stoppeddddddddddddddddddddddddddddddd.`);
         } catch (error) {
             console.error(`Session ${session.id}: Error stopping current audio stream:`, error);
         }
@@ -2276,71 +1699,7 @@ function handleInterruption(session) {
     }, session.interruptionCooldown);
 }
 
-// Send initial announcement
-async function sendInitialAnnouncement(session) {
-    // let announcementText = session.chatHistory[0].content;
 
-    // // await audioUtils.deepgramTtsToLiveKit(session.room, announcementText, session);
-    // const mp3Buffer = await aiProcessing.synthesizeSpeech3(announcementText, session.id);
-    // if (mp3Buffer) {
-
-    //     audioUtils.universalStreamAudio(session.availableChannel.find(con => con.channel == 'audio').connection, mp3Buffer, session);
-
-    // }
-    // await aiProcessing.processTextToSpeech(announcementText, session);
-}
-
-// Handle chat messages
-// app.post('/chat', async (req, res) => {
-//     try {
-//         const { roomName, message } = req.body;
-
-//         if (!roomName || !message) {
-//             return res.status(400).json({ error: 'roomName and message are required' });
-//         }
-
-//         const session = sessionManager.getSession(roomName);
-//         if (!session) {
-//             return res.status(404).json({ error: 'Session not found' });
-//         }
-
-//         if (!session.availableChannel.includes("chat")) {
-//             setChannel(session, "chat")
-//         }
-
-//         const { processedText, outputType } = await aiProcessing.processInput(
-//             { message: message, input_channel: 'chat' },
-//             session
-//         );
-
-//         if (outputType === 'chat') {
-//             // session.room.localParticipant.publishData(
-//             //     Buffer.from(JSON.stringify({
-//             //         type: 'text_response',
-//             //         content: processedText,
-//             //         latency: session.metrics
-//             //     })),
-//             //     { topic: 'chat' }
-//             // );
-
-//             res.json({ success: true, response: processedText });
-
-
-//         } else if (outputType === 'audio') {
-//             const audioBuffer = await aiProcessing.synthesizeSpeech(processedText, session.id);
-//             if (audioBuffer) {
-//                 const mulawBuffer = await audioUtils.convertMp3ToPcmInt16(audioBuffer, session.id);
-//                 if (mulawBuffer) {
-//                     audioUtils.streamMulawAudioToLiveKit(session.room, mulawBuffer, session);
-//                 }
-//             }
-//             res.json({ success: true });
-//         }
-//     } catch (error) {
-//         console.error('Error processing chat message:', error);
-//         res.status(500).json({ error: 'Failed to process chat message' });
-//     }
-// });
 
 // Change prompt
 app.post('/change-prompt', async (req, res) => {
@@ -2403,9 +1762,9 @@ app.post('/sms', async (req, res) => {
     const fromNumber = req.body.From;
     const toNumber = req.body.To;
 
-    console.log("incomingMessage", incomingMessage)
-    console.log("fromNumber", fromNumber)
-    console.log("toNumber", toNumber)
+    // console.log("incomingMessage", incomingMessage)
+    // console.log("fromNumber", fromNumber)
+    // console.log("toNumber", toNumber)
 
     console.log(`Received SMS from ${fromNumber}: ${incomingMessage}`);
 
@@ -2590,7 +1949,7 @@ wss.on('connection', (ws, req) => {
                                         if (!currentSession.isTalking && !currentSession.isVadSpeechActive) {
                                             await handleTurnCompletion(currentSession)
                                         }
-                                    }, 1000)
+                                    }, 2000)
                                 }
                             }
                         })();
@@ -2636,7 +1995,6 @@ wss.on('connection', (ws, req) => {
             currentSession.currentAudioStream = null;
         }
 
-        // Send a few small silence buffers to Twilio to quickly "cut off" any remaining audio
         // This is a common trick to ensure prompt interruption.
         for (let i = 0; i < 3; i++) {
             const silenceBuffer = audioUtils.generateSilenceBuffer(10); // 10ms silence
@@ -2780,24 +2138,6 @@ wss.on('connection', (ws, req) => {
                 });
                 connectToDeepgram(session);
 
-                // Connect to Deepgram after processes are set up
-
-                // Send initial announcement
-
-                // const userDetails = await functions.getUserDetailsByPhoneNo(session.caller);
-                // console.log(userDetails);
-                // let announcementText = session.chatHistory[0].content; // Get initial message from chat history
-                // if (userDetails) {
-                //     announcementText = `Hello ${userDetails.firstName}, welcome to the Gautam Garments. How can I help you today?`;
-                // }
-
-                // const mp3Buffer = await aiProcessing.synthesizeSpeech3(announcementText, session.id);
-                // if (mp3Buffer) {
-
-                //     audioUtils.universalStreamAudio(session.availableChannel.find(con => con.channel == 'audio').connection, mp3Buffer, session);
-
-                // }
-
             } else if (parsedData.event === 'media' && parsedData.media?.payload) {
                 if (session && session.ffmpegProcess && session.ffmpegProcess.stdin.writable) {
                     const audioBuffer = Buffer.from(parsedData.media.payload, 'base64');
@@ -2808,11 +2148,6 @@ wss.on('connection', (ws, req) => {
                 console.log('prompt', parsedData.prompt)
                 changePrompt(session, parsedData.prompt, parsedData.tools, ws)
             }
-            // ws.send(JSON.stringify({
-            //     type: "conversationHistory",
-            //     streamSid: session.streamSid,
-            //     conversation: session.chatHistory? session.chatHistory: []
-            // }))
         } catch (err) {
             console.error(`Session ${sessionId}: Error processing Twilio WebSocket message:`, err);
         }
@@ -2902,7 +2237,6 @@ wssChat.on('connection', (ws, req) => {
                         streamSid: session.streamSid
                     }))
                 }, 10000)
-                // console.log('start',parsedData);
                 let userData = parsedData.start?.customParameters?.caller || parsedData.userData;
                 session = sessionManager.createSession(ws, userData, parsedData.prompt, parsedData.tools); // Pass ws to session manager
                 sessionId = session.id;// Confirm streamSid in session

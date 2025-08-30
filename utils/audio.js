@@ -116,7 +116,7 @@ function streamPCMAudioToLiveKit(room, session, onComplete) {
         const audioFrame = new AudioFrame(pcmArray, 16000, 1, pcmArray.length);
         await source.captureFrame(audioFrame);
         const chunkDurationMs = (pcmArray.length / 16000) * 1000;
-        await new Promise(r => setTimeout(r, chunkDurationMs));
+        await new Promise(r => setTimeout(r, chunkDurationMs+1000));
       } catch (e) { stopFunction(); return; }
     }
     if (audioQueue.length === 0) {
@@ -131,9 +131,11 @@ function streamPCMAudioToLiveKit(room, session, onComplete) {
 
 async function universalStreamAudio(connection, buffer, session) {
   if (connection instanceof WebSocket) {
+    if (session.currentAudioStream) session.currentAudioStream.stop();
     const mulawBuffer = await convertMp3ToMulaw(buffer, session.id);
     if (mulawBuffer) streamMulawAudioToTwilio(connection, mulawBuffer, session);
   } else if (connection instanceof Room) {
+    if (session.currentAudioStream) session.currentAudioStream.stop();
     const pcmBuffer = await convertMp3ToPcmInt16(buffer, session.id);
     const addAudioChunk = streamPCMAudioToLiveKit(connection, session);
     await addAudioChunk(pcmBuffer);

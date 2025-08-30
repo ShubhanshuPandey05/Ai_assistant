@@ -107,7 +107,7 @@ class SessionManager {
             if (session.prompt) {
                 session.prompt = '';
             }
-            session.isAIResponding = false;
+            // session.isAIResponding = false;
         }
     }
 }
