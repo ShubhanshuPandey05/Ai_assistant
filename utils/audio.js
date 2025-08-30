@@ -47,9 +47,10 @@ function streamMulawAudioToTwilio(ws, mulawBuffer, session) {
   session.interruption = false;
 
   const stopFunction = () => {
+    console.log(`Session ${session.id}: Immediately stopping Twilio audio stream`);
     session.interruption = true;
     session.isAIResponding = false;
-    offset = mulawBuffer.length;
+    offset = mulawBuffer.length; // Skip to end to stop immediately
     session.currentAudioStream = null;
   };
   session.currentAudioStream = { stop: stopFunction };
@@ -61,12 +62,17 @@ function streamMulawAudioToTwilio(ws, mulawBuffer, session) {
       return;
     }
     const chunk = mulawBuffer.slice(offset, offset + CHUNK_SIZE_MULAW);
-    if (chunk.length === 0) { session.isAIResponding = false; session.currentAudioStream = null; return; }
+    if (chunk.length === 0) { 
+      session.isAIResponding = false; 
+      session.currentAudioStream = null; 
+      return; 
+    }
     try {
       ws.send(JSON.stringify({ event: 'media', streamSid, media: { payload: chunk.toString('base64') } }));
       offset += CHUNK_SIZE_MULAW;
       setTimeout(sendChunk, 100);
     } catch (e) {
+      console.error(`Error sending Twilio audio chunk: ${e.message}`);
       stopFunction();
     }
   }
@@ -85,28 +91,46 @@ function streamPCMAudioToLiveKit(room, session, onComplete) {
   let isStreaming = false;
 
   const stopFunction = () => {
+    console.log(`Session ${session.id}: Immediately stopping LiveKit audio stream`);
     session.interruption = true;
     session.isAIResponding = false;
     session.currentAudioStream = null;
-    audioQueue = [];
+    audioQueue = []; // Clear the queue immediately
+    
+    // Unpublish track if it exists
     if (isPublished && track) {
-      try { room.localParticipant.unpublishTrack(track); } catch {}
+      try { 
+        room.localParticipant.unpublishTrack(track); 
+        console.log(`Session ${session.id}: Unpublished audio track`);
+      } catch (e) {
+        console.error(`Error unpublishing track: ${e.message}`);
+      }
     }
+    
     if (onComplete) onComplete();
   };
   session.currentAudioStream = { stop: stopFunction };
 
   async function initializeAudioTrack() {
-    source = new AudioSource(16000, 1);
-    track = LocalAudioTrack.createAudioTrack('ai-response', source);
-    await room.localParticipant.publishTrack(track, { source: TrackSource.SOURCE_MICROPHONE, name: 'ai-response' });
-    isPublished = true;
+    try {
+      source = new AudioSource(16000, 1);
+      track = LocalAudioTrack.createAudioTrack('ai-response', source);
+      await room.localParticipant.publishTrack(track, { source: TrackSource.SOURCE_MICROPHONE, name: 'ai-response' });
+      isPublished = true;
+      console.log(`Published audio track for session ${session.id}`);
+    } catch (e) {
+      console.error(`Error initializing audio track: ${e.message}`);
+      stopFunction();
+    }
   }
 
   const addAudioChunk = async (pcmArray) => {
     if (session.interruption) return;
     audioQueue.push(pcmArray);
-    if (!isStreaming) { isStreaming = true; processAudioQueue(); }
+    if (!isStreaming) { 
+      isStreaming = true; 
+      processAudioQueue(); 
+    }
   };
 
   async function processAudioQueue() {
@@ -116,12 +140,20 @@ function streamPCMAudioToLiveKit(room, session, onComplete) {
         const audioFrame = new AudioFrame(pcmArray, 16000, 1, pcmArray.length);
         await source.captureFrame(audioFrame);
         const chunkDurationMs = (pcmArray.length / 16000) * 1000;
-        await new Promise(r => setTimeout(r, chunkDurationMs+1000));
-      } catch (e) { stopFunction(); return; }
+        await new Promise(r => setTimeout(r, chunkDurationMs));
+      } catch (e) { 
+        console.error(`Error processing audio frame: ${e.message}`);
+        stopFunction(); 
+        return; 
+      }
     }
     if (audioQueue.length === 0) {
       isStreaming = false;
-      setTimeout(() => { if (audioQueue.length === 0) stopFunction(); }, 100);
+      setTimeout(() => { 
+        if (audioQueue.length === 0 && !session.interruption) {
+          stopFunction(); 
+        }
+      }, 100);
     }
   }
 
@@ -130,16 +162,55 @@ function streamPCMAudioToLiveKit(room, session, onComplete) {
 }
 
 async function universalStreamAudio(connection, buffer, session) {
-  if (connection instanceof WebSocket) {
-    if (session.currentAudioStream) session.currentAudioStream.stop();
-    const mulawBuffer = await convertMp3ToMulaw(buffer, session.id);
-    if (mulawBuffer) streamMulawAudioToTwilio(connection, mulawBuffer, session);
-  } else if (connection instanceof Room) {
-    if (session.currentAudioStream) session.currentAudioStream.stop();
-    const pcmBuffer = await convertMp3ToPcmInt16(buffer, session.id);
-    const addAudioChunk = streamPCMAudioToLiveKit(connection, session);
-    await addAudioChunk(pcmBuffer);
+  // Immediately stop any existing audio stream to prioritize the latest
+  if (session.currentAudioStream && typeof session.currentAudioStream.stop === 'function') {
+    console.log(`Session ${session.id}: Immediately stopping existing audio stream for latest audio`);
+    try {
+      session.currentAudioStream.stop();
+    } catch (error) {
+      console.error(`Session ${session.id}: Error stopping audio stream:`, error);
+    }
   }
+
+  // Force clear immediately - no waiting
+  session.currentAudioStream = null;
+  session.isAIResponding = false;
+  session.interruption = false;
+
+  if (connection instanceof WebSocket) {
+    const mulawBuffer = await convertMp3ToMulaw(buffer, session.id);
+    if (mulawBuffer) {
+      streamMulawAudioToTwilio(connection, mulawBuffer, session);
+    }
+  } else if (connection instanceof Room) {
+    const pcmBuffer = await convertMp3ToPcmInt16(buffer, session.id);
+    if (pcmBuffer) {
+      const addAudioChunk = streamPCMAudioToLiveKit(connection, session);
+      await addAudioChunk(pcmBuffer);
+    }
+  }
+}
+
+// Utility function to safely stop audio streams
+function safelyStopAudioStream(session) {
+  if (session && session.currentAudioStream && typeof session.currentAudioStream.stop === 'function') {
+    try {
+      console.log(`Safely stopping audio stream for session ${session.id}`);
+      session.currentAudioStream.stop();
+      session.currentAudioStream = null;
+      session.isAIResponding = false;
+      session.interruption = false;
+      return true;
+    } catch (error) {
+      console.error(`Error safely stopping audio stream for session ${session.id}:`, error);
+      // Force clear even if stop fails
+      session.currentAudioStream = null;
+      session.isAIResponding = false;
+      session.interruption = false;
+      return false;
+    }
+  }
+  return true;
 }
 
 module.exports = {
@@ -148,6 +219,7 @@ module.exports = {
   streamMulawAudioToTwilio,
   streamPCMAudioToLiveKit,
   universalStreamAudio,
+  safelyStopAudioStream,
 };
 
 

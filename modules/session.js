@@ -90,24 +90,58 @@ class SessionManager {
 
     cleanupSession(session) {
         if (session) {
+            console.log(`Cleaning up session ${session.id}`);
+            
+            // Stop any ongoing audio stream
+            if (session.currentAudioStream && typeof session.currentAudioStream.stop === 'function') {
+                try {
+                    console.log(`Stopping audio stream for session ${session.id}`);
+                    session.currentAudioStream.stop();
+                    session.currentAudioStream = null;
+                } catch (error) {
+                    console.error(`Error stopping audio stream for session ${session.id}:`, error);
+                }
+            }
+            
+            // Clear audio-related flags
+            session.isAIResponding = false;
+            session.interruption = false;
+            session.isAIResponding = false;
+            
+            // Close Deepgram socket
             if (session.dgSocket?.readyState === 1) {
                 session.dgSocket.close();
             }
+            
+            // Kill FFmpeg process
             if (session.ffmpegProcess) {
-                session.ffmpegProcess.stdin.end();
-                session.ffmpegProcess.kill('SIGINT');
+                try {
+                    session.ffmpegProcess.stdin.end();
+                    session.ffmpegProcess.kill('SIGINT');
+                } catch (error) {
+                    console.error(`Error killing FFmpeg process for session ${session.id}:`, error);
+                }
             }
+            
+            // Kill VAD process
             if (session.vadProcess) {
-                session.vadProcess.stdin.end();
-                session.vadProcess.kill('SIGINT');
+                try {
+                    session.vadProcess.stdin.end();
+                    session.vadProcess.kill('SIGINT');
+                } catch (error) {
+                    console.error(`Error killing VAD process for session ${session.id}:`, error);
+                }
             }
-            if (session.currentAudioStream && typeof session.currentAudioStream.stop === 'function') {
-                session.currentAudioStream.stop();
-            }
-            if (session.prompt) {
-                session.prompt = '';
-            }
-            // session.isAIResponding = false;
+            
+            // Clear session data
+            session.prompt = '';
+            session.chatHistory = [];
+            session.transcriptBuffer = [];
+            session.interimResultsBuffer = [];
+            session.vadDeepgramBuffer = Buffer.alloc(0);
+            session.message = [];
+            
+            console.log(`Session ${session.id} cleanup completed`);
         }
     }
 }

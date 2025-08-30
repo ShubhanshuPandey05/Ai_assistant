@@ -46,9 +46,24 @@ async function handleIncomingChat(message, participant, session, deps) {
       session.room.localParticipant.publishData(replyPayload, (Livekit && Livekit.DataPacket_Kind && Livekit.DataPacket_Kind.RELIABLE) || 0, [participant.sid]);
     }
   } else if (outputType === 'audio') {
+    // Immediately stop any existing audio stream to prioritize the latest
+    if (session.currentAudioStream && typeof session.currentAudioStream.stop === 'function') {
+      console.log(`Session ${session.id}: Immediately stopping existing audio for latest audio`);
+      try {
+        session.currentAudioStream.stop();
+      } catch (error) {
+        console.error(`Session ${session.id}: Error stopping audio stream:`, error);
+      }
+    }
+    
+    // Force clear immediately - no waiting
+    session.currentAudioStream = null;
+    session.isAIResponding = false;
+    session.interruption = false;
+    
     const audioBuffer = await aiProcessing.synthesizeSpeech3(processedText, session.id);
     if (audioBuffer) {
-      audioUtils.streamMulawAudioToLiveKit(session.room, audioBuffer, session);
+      audioUtils.universalStreamAudio(session.room, audioBuffer, session);
     }
   }
 }

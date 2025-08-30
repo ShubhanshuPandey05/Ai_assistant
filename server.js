@@ -448,6 +448,7 @@ try {
 const { CONFIG } = require('./config/constants');
 
 // Performance Monitoring
+// This is also not used currently but can be used for the performance monitoring
 const performance = {
     latency: {
         total: 0,
@@ -762,7 +763,9 @@ const audioUtils = {
     // Currently it is Not Used Any Where
     streamMulawAudioToTwilio: audioUtilsModule.streamMulawAudioToTwilio,
 
-    universalStreamAudio: audioUtilsModule.universalStreamAudio
+    universalStreamAudio: audioUtilsModule.universalStreamAudio,
+
+    safelyStopAudioStream: audioUtilsModule.safelyStopAudioStream
 };
 
 // AI Processing
@@ -1284,6 +1287,7 @@ only hangup the call when user says to hangup.
     }
 }
 
+// This is currently not getting used
 const changePrompt = (session, prompt, tools) => {
     let changePrompt = `${prompt}
         Available channels:
@@ -1313,13 +1317,30 @@ async function sendSMS(to, message, session, input_channel) {
 const handleOutput = async (session, response, output_channel, input_channel) => {
     output_channel = output_channel ? output_channel : input_channel
     if (output_channel == "audio") {
-        handleInterruption(session); // Stop any ongoing AI speech
+        // Immediately stop any existing audio stream to prioritize the latest
+        if (session.currentAudioStream && typeof session.currentAudioStream.stop === 'function') {
+            console.log(`Session ${session.id}: Stopping existing audio to serve latest audio`);
+            try {
+                session.currentAudioStream.stop();
+            } catch (error) {
+                console.error(`Session ${session.id}: Error stopping audio stream:`, error);
+            }
+        }
+
+        // Force clear the audio stream immediately
+        session.currentAudioStream = null;
+        session.isAIResponding = false;
+        session.interruption = false;
+
         let TTSTimeStart = Date.now()
         const audioBuffer = await aiProcessing.synthesizeSpeech3(response, session.id);
         let TTSTime = Date.now() - TTSTimeStart
         console.log("TTSTime", TTSTime)
         if (!audioBuffer) throw new Error("Failed to synthesize speech.");
+
+        // Start new audio stream immediately without waiting
         audioUtils.universalStreamAudio(session.availableChannel.find(con => con.channel == 'audio').connection, audioBuffer, session);
+
     } else if (output_channel == "chat") {
         session.availableChannel.find(con => con.channel == 'chat').connection.send(JSON.stringify({
             event: 'media',
@@ -1336,7 +1357,6 @@ const handleOutput = async (session, response, output_channel, input_channel) =>
     }
 
     session.isAIResponding = false;
-
 }
 
 const sendSystemMessage = async (session, message, channel) => {
@@ -1347,14 +1367,6 @@ const sendSystemMessage = async (session, message, channel) => {
 
     await handleOutput(session, processedText, outputType, channel);
 }
-
-
-
-
-
-
-
-
 
 
 // ................................. ------ Livekit Room For Web Call ------ .................................
@@ -1666,10 +1678,6 @@ async function handleTurnCompletion(session) {
         await handleOutput(session, processedText, outputType, "audio")
     } catch (err) {
         console.error(`Session ${session.id}: Error during turn completion handling:`, err);
-        // session.room.localParticipant.publishData(
-        //     Buffer.from(JSON.stringify({ type: 'error', error: err.message })),
-        //     { topic: 'error' }
-        // );
         session.isAIResponding = false;
     }
 }
@@ -1732,9 +1740,6 @@ app.post('/change-prompt', async (req, res) => {
 });
 
 
-
-
-
 // ...................................Sms Route...................................
 
 async function handleIncomingMessage(fromNumber, message) {
@@ -1780,9 +1785,6 @@ app.post('/sms', async (req, res) => {
     res.send(twiml.toString());
 });
 
-//................................................................................
-
-
 
 // Start server
 const PORT = process.env.PORT || 5001;
@@ -1800,19 +1802,6 @@ process.on('SIGINT', () => {
         process.exit(0);
     }, 500);
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 //................................. ------ Web Socket Part ------ .................................
@@ -1843,10 +1832,6 @@ wss.on('connection', (ws, req) => {
 
         // 1. Add the complete user message to the official chat history
         session.chatHistory.push({ role: 'user', content: finalTranscript });
-
-        // 2. Reset the utterance buffer for the next turn
-        session.currentUserUtterance = '';
-
         // 3. Send final transcript to client for display (optional, but good practice)
         ws.send(JSON.stringify({
             type: 'final_transcript',
@@ -1860,6 +1845,7 @@ wss.on('connection', (ws, req) => {
                 { message: finalTranscript, input_channel: 'audio' },
                 session
             );
+            session.currentUserUtterance = '';
 
             // 5. Add AI response to chat history
             session.chatHistory.push({ role: 'assistant', content: processedText });
@@ -2042,7 +2028,7 @@ wss.on('connection', (ws, req) => {
                 session.userName = parsedData.start?.customParameters?.name || "User don't have a name just greet them with the Sir"
 
                 setChannel(ws, session, "audio")
-                
+
                 // console.log(session.caller);
                 console.log(`Session ${sessionId}: Twilio stream started for CallSid: ${session.callSid}`);
 
@@ -2200,18 +2186,6 @@ process.on('SIGINT', () => {
         });
     }, 500);
 });
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
