@@ -8,6 +8,12 @@ __pycache__/
 *.pyo
 *.pyd
 
+
+onnx_model/
+onnx_model_2/
+onnx_model_3/
+
+
 # Environment variables
 .env
 
