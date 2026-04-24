@@ -30,17 +30,21 @@ ENV PATH="/opt/python_env/bin:$PATH"
 
 WORKDIR /app
 
-# ------ Python dependencies ------
-# Install core Python packages (pinned to match project needs)
-RUN pip install --no-cache-dir \
-    --index-url https://download.pytorch.org/whl/cpu \
-    torch \
-    torchaudio
-
 RUN pip install --no-cache-dir --upgrade \
     pip \
     setuptools \
     wheel
+
+# ------ Python dependencies ------
+# Install a known-compatible CPU pair to avoid torch/torchaudio ABI mismatch
+RUN pip install --no-cache-dir \
+    --index-url https://download.pytorch.org/whl/cpu \
+    --extra-index-url https://pypi.org/simple \
+    torch==2.5.1+cpu \
+    torchaudio==2.5.1+cpu
+
+# Fail fast if torch audio extension cannot load
+RUN python3 -c "import torch, torchaudio; print(torch.__version__, torchaudio.__version__)"
 
 RUN pip install --no-cache-dir \
     numpy==2.3.0 \
@@ -49,6 +53,7 @@ RUN pip install --no-cache-dir \
     grpcio-tools==1.73.0 \
     transformers==4.52.4 \
     optimum==2.1.0 \
+    optimum-onnx==0.1.0 \
     onnxruntime==1.22.0
 
 # Copy Python files
@@ -90,7 +95,7 @@ RUN rm -f "${ONNX_MODEL_DIR}/model.onnx"
 
 # ------ Node.js dependencies ------
 COPY package.json ./
-RUN npm install --omit=dev
+RUN npm install --legacy-peer-deps --omit=dev
 
 # ------ Application code ------
 COPY server.js telephony.js test.js ./
