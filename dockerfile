@@ -35,13 +35,19 @@ WORKDIR /app
 RUN pip install --no-cache-dir \
     torch --index-url https://download.pytorch.org/whl/cpu
 
+RUN pip install --no-cache-dir --upgrade \
+    pip \
+    setuptools \
+    wheel
+
 RUN pip install --no-cache-dir \
-    numpy \
+    numpy==2.3.0 \
+    PyYAML==6.0.2 \
     grpcio==1.73.0 \
     grpcio-tools==1.73.0 \
-    transformers \
-    optimum[onnxruntime] \
-    onnxruntime
+    transformers==4.52.4 \
+    optimum==2.1.0 \
+    onnxruntime==1.22.0
 
 # Copy Python files
 COPY vad.py turn.py grpc_server.py turn.proto ./
