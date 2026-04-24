@@ -33,7 +33,9 @@ WORKDIR /app
 # ------ Python dependencies ------
 # Install core Python packages (pinned to match project needs)
 RUN pip install --no-cache-dir \
-    torch --index-url https://download.pytorch.org/whl/cpu
+    --index-url https://download.pytorch.org/whl/cpu \
+    torch \
+    torchaudio
 
 RUN pip install --no-cache-dir --upgrade \
     pip \
