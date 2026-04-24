@@ -5,7 +5,7 @@ FROM node:20-slim AS client-builder
 
 WORKDIR /app/client
 COPY client/package.json ./
-RUN npm ci
+RUN npm install
 COPY client/ ./
 RUN npm run build
 
@@ -82,7 +82,7 @@ RUN rm -f "${ONNX_MODEL_DIR}/model.onnx"
 
 # ------ Node.js dependencies ------
 COPY package.json ./
-RUN npm ci --omit=dev
+RUN npm install --omit=dev
 
 # ------ Application code ------
 COPY server.js telephony.js test.js ./
