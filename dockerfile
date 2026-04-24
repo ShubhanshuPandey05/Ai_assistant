@@ -4,7 +4,7 @@
 FROM node:20-slim AS client-builder
 
 WORKDIR /app/client
-COPY client/package.json client/package-lock.json ./
+COPY client/package.json ./
 RUN npm ci
 COPY client/ ./
 RUN npm run build
@@ -81,7 +81,7 @@ RUN python3 ./model_quantization.py
 RUN rm -f "${ONNX_MODEL_DIR}/model.onnx"
 
 # ------ Node.js dependencies ------
-COPY package.json package-lock.json ./
+COPY package.json ./
 RUN npm ci --omit=dev
 
 # ------ Application code ------
