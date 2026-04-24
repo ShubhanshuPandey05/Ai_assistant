@@ -6,7 +6,7 @@ import Select from 'react-select';
 
 // const SERVER_URL = 'https://call-server.shipfast.studio/livekit';
 // const SERVER_URL = 'http://localhost:5001';
-const SERVER_URL = 'http://13.233.236.40:5001';
+const SERVER_URL = 'http://13.233.236.40/voice';
 const LIVEKIT_URL = 'wss://aiagent-i9rqezpr.livekit.cloud';
 
 // Minimal country list with flags and dialing codes
@@ -285,7 +285,7 @@ const UnifiedAgent = () => {
         try {
             setError(null);
             // wsRef.current = new WebSocket('ws://localhost:5003/');
-            wsRef.current = new WebSocket('ws://13.233.236.40:5003/');
+            wsRef.current = new WebSocket('ws://13.233.236.40/chat/');
             // wsRef.current = new WebSocket('wss://call-server.shipfast.studio/websocketchat/');
 
             wsRef.current.onopen = () => {
