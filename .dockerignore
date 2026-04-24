@@ -24,7 +24,6 @@ Thumbs.db
 # Misc
 *.md
 VAD_TEMP.txt
-model_quantization.py
 onnx_model/
 onnx_model_2/
 
