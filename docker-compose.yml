@@ -1,0 +1,16 @@
+# version: "3.8"
+
+services:
+  ai-assistant:
+    build: .
+    container_name: ai-assistant
+    ports:
+      - "5001:5001"   # Express HTTP API
+      - "5002:5002"   # WebSocket Voice (Twilio)
+      - "5003:5003"   # WebSocket Chat
+    env_file:
+      - .env
+    environment:
+      - PYTHON_PATH=python3
+      - NODE_ENV=production
+    restart: unless-stopped

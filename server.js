@@ -967,7 +967,7 @@ const aiProcessing = {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NTE3ODQ3NDgsImh1bWFuIjoic3RyaW5nIiwicHJvamVjdCI6IjkzYTUyY2Y4LTNmYTQtNDhjYi1hYTMyLWJiMzkxNDQxZTI4NSJ9.qJq78UrY86Hf - i6oUN6PPiSXgn51aewbSNus2 - mGC6Q`,
+                    'Authorization': `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NTE3ODQ3NDgsImh1bWFuIjoic3RyaW5nIiwicHJvamVjdCI6IjkzYTUyY2Y4LTNmYTQtNDhjYi1hYTMyLWJiMzkxNDQxZTI4NSJ9.qJq78UrY86Hf-i6oUN6PPiSXgn51aewbSNus2-mGC6Q`,
                 },
                 body: JSON.stringify({
                     text,
@@ -1239,7 +1239,7 @@ If the user ask for any other channel then send by that channel:
 {"response": "Your response", "output_channel": "other_channel"}
 Remember, output must be STRICTLY JSON only.
 
-only hangup the call when user says to hangup.
+only hangup the call when user says to hangup the call.
 `;
 
         session.prompt = prompt;

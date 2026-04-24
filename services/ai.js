@@ -1,14 +1,24 @@
 const { PollyClient, SynthesizeSpeechCommand } = require('@aws-sdk/client-polly');
 const { createClient, LiveTTSEvents } = require('@deepgram/sdk');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { DEEPGRAM_API, GEMINI_AI } = require('../config');
+// const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenAI } = require("@google/genai");
+const { DEEPGRAM_API, GEMINI_API } = require('../config/index.js');
 
 const deepgramTts = createClient(DEEPGRAM_API);
-const genAI = new GoogleGenerativeAI(GEMINI_AI);
+const genAI = new GoogleGenAI({ apiKey: GEMINI_API });
+
+const { z } = require("zod");
+const { zodToJsonSchema } = require("zod-to-json-schema")
+
+const responseSchema = z.object({
+  response : z.string().describe("response for the user input"),
+  output_channel: z.string().describe("channel for the output reponse."),
+});
+
 
 const services = {
   polly: new PollyClient({ region: 'us-east-1' }),
-  gemini: genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' }),
+  gemini: genAI
 };
 
 async function processInput(input, session, functions, toolDefinitions) {
@@ -17,7 +27,21 @@ async function processInput(input, session, functions, toolDefinitions) {
   }
   session.messages.push({ role: 'user', parts: [{ text: `${input.message}   --end:${input.input_channel}` }] });
 
+  // if (session.userid) {
+  //   // 1. Retrieve relevant memories
+  //   const userId = session.userid;
+  //   let memoryContext = '';
+  //   try {
+  //     const memories = await memoryService.searchMemory(input.message, userId);
+  //     if (memories?.results?.length > 0) {
+  //       memoryContext = '\n\n## Relevant Memories about this user:\n' +
+  //         memories.results.map(m => `- ${m.memory}`).join('\n');
+  //     }
+  //   } catch (e) { console.error('Memory search error:', e.message); }
+  // }
+
   const geminiRequest = {
+    model: "gemini-3.1-flash-lite-preview",
     contents: session.messages,
     tools: session.tools && session.tools.length > 0 ? [{ functionDeclarations: session.tools }] : undefined,
     safetySettings: [
@@ -26,12 +50,28 @@ async function processInput(input, session, functions, toolDefinitions) {
       { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
       { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
     ],
-    generationConfig: { temperature: 0.2 },
-    systemInstruction: session.prompt ? { parts: [{ text: session.prompt }] } : undefined,
+    config: {
+      temperature: 0.2,
+      // response_mime_type: "application/json",
+      responseMimeType: "application/json",
+      responseJsonSchema: zodToJsonSchema(responseSchema),
+      // response_schema: {
+      //   type: "object",
+      //   properties: {
+      //     response: { type: "string" },
+      //     output_channel: { type: "string" }
+      //   },
+      //   required: ["response", "output_channel"]
+      // },
+      systemInstruction: session.prompt ? { parts: [{ text: session.prompt }] } : undefined,
+    },
+    // config:{
+    // }
   };
-
-  let response = await services.gemini.generateContent(geminiRequest);
-  const candidate = response.response.candidates[0];
+  console.log("session.prompt", session.prompt);
+  let response = await services.gemini.models.generateContent(geminiRequest);
+  console.log("response:-", response)
+  const candidate = response.candidates[0];
   const assistantContent = candidate.content;
   session.messages.push({ role: 'model', parts: assistantContent.parts });
 
@@ -183,7 +223,7 @@ async function processTextToSpeech(processedText, session) {
   const addAudioChunk = streamPCMAudioToLiveKit(
     session.room,
     session,
-    () => {}
+    () => { }
   );
   await synthesizeSpeechStream(processedText, session.id, addAudioChunk);
 }

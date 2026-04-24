@@ -1,0 +1,419 @@
+# Deep Analysis: AI Voice Assistant Platform
+
+## What Is This Project?
+
+This is a **full-stack, real-time AI Voice Assistant platform** — a production-grade system that enables **conversational AI** over **phone calls (Twilio)**, **web calls (LiveKit)**, **SMS**, and **chat (WebSocket)**. It acts like a smart customer-support agent for a **Shopify e-commerce store**, capable of answering product questions, looking up orders, cancelling orders, and routing responses across multiple communication channels simultaneously.
+
+---
+
+## High-Level Architecture
+
+```mermaid
+graph TB
+    subgraph "Client (React + Vite)"
+        UI["UnifiedAgent UI"]
+        AudioComp["Audio Component"]
+        ChatComp["Chat Component"]
+        BulkCall["Bulk Call"]
+    end
+
+    subgraph "Node.js Server (server.js)"
+        Express["Express API :5001"]
+        WSVoice["WebSocket Voice :5002"]
+        WSChat["WebSocket Chat :5003"]
+        SessionMgr["Session Manager"]
+        AIProc["AI Processing"]
+        AudioUtils["Audio Utils"]
+        OutputRouter["handleOutput Router"]
+    end
+
+    subgraph "External AI Services"
+        Gemini["Google Gemini 2.5 Flash"]
+        Deepgram["Deepgram Nova-3 STT"]
+        DeepgramTTS["Deepgram Aura-2 TTS"]
+        Polly["AWS Polly TTS"]
+        Gabber["Gabber TTS"]
+    end
+
+    subgraph "Python Subsystem"
+        VAD["Silero VAD (vad.py)"]
+        TurnDetect["Turn Detector gRPC :50051"]
+        SmolLM["SmolLM2-135M ONNX"]
+    end
+
+    subgraph "Telephony & Comms"
+        Twilio["Twilio (Calls + SMS)"]
+        LiveKit["LiveKit Server"]
+    end
+
+    subgraph "E-Commerce"
+        Shopify["Shopify GraphQL API"]
+    end
+
+    UI --> Express
+    AudioComp --> WSVoice
+    AudioComp --> LiveKit
+    ChatComp --> WSChat
+    BulkCall --> Express
+
+    Express --> SessionMgr
+    WSVoice --> SessionMgr
+    WSChat --> SessionMgr
+
+    SessionMgr --> AIProc
+    AIProc --> Gemini
+    AIProc --> Shopify
+
+    WSVoice -->|"raw audio"| FFmpeg["FFmpeg Resampler"]
+    FFmpeg --> VAD
+    VAD -->|"speech chunks"| Deepgram
+
+    Deepgram -->|"transcript"| TurnDetect
+    TurnDetect --> SmolLM
+    TurnDetect -->|"end_of_turn"| AIProc
+
+    AIProc -->|"response text"| OutputRouter
+    OutputRouter -->|"audio"| Polly
+    OutputRouter -->|"audio"| DeepgramTTS
+    OutputRouter -->|"audio"| Gabber
+    OutputRouter -->|"sms"| Twilio
+    OutputRouter -->|"chat"| WSChat
+
+    Polly --> AudioUtils
+    AudioUtils --> LiveKit
+    AudioUtils --> Twilio
+```
+
+---
+
+## Component-by-Component Deep Dive
+
+### 1. Server Entry Point — [server.js](file:///d:/work/ship-fast.studio/Ai-Assistant/server.js)
+
+This is the **brain** of the application at **2,283 lines**. It runs **three servers simultaneously**:
+
+| Server | Port | Protocol | Purpose |
+|--------|------|----------|---------|
+| Express HTTP | 5001 | REST | Room creation, prompt changes, SMS webhooks, outbound calls |
+| WebSocket Voice | 5002 | WS | Twilio phone-call audio streaming |
+| WebSocket Chat | 5003 | WS | Text-based chat sessions |
+
+**Key responsibilities:**
+- Initializes all service clients (Twilio, Polly, Deepgram, LiveKit)
+- Defines Shopify GraphQL functions inline (with external service override pattern)
+- Wires up the complete audio processing pipeline
+- Handles turn completion, interruption, and multi-channel output routing
+
+---
+
+### 2. Session Management — [session.js](file:///d:/work/ship-fast.studio/Ai-Assistant/modules/session.js)
+
+The [SessionManager](file:///d:/work/ship-fast.studio/Ai-Assistant/modules/session.js#14-148) class maintains a `Map` of active sessions. Each session is a **rich state object** with ~30 fields tracking:
+
+- **Identity**: `id`, `name`, `phoneNo`, `caller`
+- **Audio state**: `isAIResponding`, `currentAudioStream`, `interruption`, `interruptionCooldown`
+- **Transcription**: `dgSocket`, `lastTranscript`, `transcriptBuffer`, `currentUserUtterance`
+- **VAD state**: `vadProcess`, `ffmpegProcess`, `isVadSpeechActive`, `vadDeepgramBuffer`
+- **AI context**: `chatHistory`, `prompt`, `tools`, [messages](file:///d:/work/ship-fast.studio/Ai-Assistant/turn.py#66-80), `lastResponseId`
+- **Multi-channel**: `availableChannel[]` (tracks which channels — audio, chat, sms — are active)
+
+**Session lifecycle:**
+1. **Create** → Associates with a user from [UserStorage](file:///d:/work/ship-fast.studio/Ai-Assistant/modules/userStore.js#1-147), generates unique ID, builds initial state
+2. **Reuse** → If a user already has an active session, it updates and returns the existing one
+3. **Cleanup** → Stops audio streams, closes Deepgram socket, kills FFmpeg/VAD processes, clears history
+
+---
+
+### 3. User Storage — [userStore.js](file:///d:/work/ship-fast.studio/Ai-Assistant/modules/userStore.js)
+
+An **in-memory user database** (not persistent). Each user has: `Name`, `UserId`, [Phone](file:///d:/work/ship-fast.studio/Ai-Assistant/services/shopify.js#48-64), `Email`, `PastSessionId[]`, `ActiveSessionId`.
+
+- Users can be looked up by **any field** (name, phone, email, session ID)
+- Tracks session history via `PastSessionId` array
+- Three test users are hardcoded at startup: Shubhanshu, Ankit, Abhinav
+
+> [!IMPORTANT]
+> This is purely in-memory. All user data is lost on server restart. For production, this would need a database like PostgreSQL (the [pg](file:///d:/work/ship-fast.studio/Ai-Assistant/server.js#1570-1659) package is already a dependency).
+
+---
+
+### 4. The Audio Processing Pipeline
+
+This is the most complex part. Here's the complete flow for a **phone call via Twilio**:
+
+```mermaid
+sequenceDiagram
+    participant User as Caller
+    participant Twilio
+    participant WS as WebSocket :5002
+    participant FFmpeg
+    participant VAD as Silero VAD (Python)
+    participant DG as Deepgram STT
+    participant Turn as Turn Detector (gRPC)
+    participant AI as Gemini LLM
+    participant TTS as AWS Polly TTS
+    participant Audio as Audio Utils
+
+    User->>Twilio: Speaks
+    Twilio->>WS: µ-law audio (base64, 8kHz)
+    WS->>FFmpeg: Decode µ-law → PCM s16le
+    FFmpeg->>FFmpeg: Resample 8kHz → 16kHz
+    FFmpeg->>VAD: PCM 16kHz stream (pipe)
+    VAD->>VAD: Detect speech segments
+    VAD->>WS: JSON events (speech_start, chunk, speech_end)
+    WS->>DG: Speech chunks (linear16)
+    DG->>WS: Transcripts (interim + final)
+    WS->>Turn: Final transcript + chat history (gRPC)
+    Turn->>Turn: SmolLM2 end-of-turn prediction
+    Turn->>WS: {end_of_turn: true/false}
+    WS->>AI: Complete utterance
+    AI->>AI: Gemini processes + tool calls
+    AI->>WS: Response text + output_channel
+    WS->>TTS: Text → MP3
+    TTS->>Audio: MP3 buffer
+    Audio->>Audio: MP3 → µ-law (FFmpeg)
+    Audio->>Twilio: µ-law chunks (base64)
+    Twilio->>User: Hears response
+```
+
+#### Audio format conversions:
+
+| Stage | Format | Sample Rate | Encoding |
+|-------|--------|-------------|----------|
+| Twilio input | µ-law | 8,000 Hz | base64 |
+| FFmpeg output | PCM s16le | 16,000 Hz | raw |
+| VAD processing | float32 | 16,000 Hz | normalized |
+| Deepgram STT | linear16 | 16,000 Hz | raw |
+| TTS output | MP3 | varies | compressed |
+| Twilio playback | µ-law | 8,000 Hz | base64 |
+| LiveKit playback | PCM s16le | 16,000 Hz | AudioFrame |
+
+---
+
+### 5. Voice Activity Detection (VAD) — [vad.py](file:///d:/work/ship-fast.studio/Ai-Assistant/vad.py)
+
+A **Python subprocess** using the **Silero VAD** neural network model (via PyTorch). It runs as a **child process** that communicates via stdin/stdout pipes.
+
+**How it works:**
+1. Reads raw PCM audio from stdin
+2. Buffers into 250ms chunks (4,000 samples at 16kHz)
+3. Runs Silero model inference on each chunk
+4. Detects speech segments based on a 0.5 probability threshold
+5. Emits JSON events: [speech_start](file:///d:/work/ship-fast.studio/Ai-Assistant/vad.py#137-162), [speech_continue](file:///d:/work/ship-fast.studio/Ai-Assistant/vad.py#163-178), [speech_end](file:///d:/work/ship-fast.studio/Ai-Assistant/vad.py#179-202)
+6. Includes prefix/suffix audio buffers for natural speech boundaries
+7. Supports CUDA acceleration if available
+
+**Configuration** ([VADConfig](file:///d:/work/ship-fast.studio/Ai-Assistant/vad.py#L13-L30)):
+- Minimum speech duration: 100ms
+- Minimum silence to end speech: 300ms
+- Prefix/suffix duration: 100ms each
+
+---
+
+### 6. Turn Detection — [turn.py](file:///d:/work/ship-fast.studio/Ai-Assistant/turn.py) + [grpc_server.py](file:///d:/work/ship-fast.studio/Ai-Assistant/grpc_server.py)
+
+This is a **custom end-of-turn detector** that determines whether the user has finished speaking their complete thought (not just paused). It uses:
+
+- **Model**: `HuggingFaceTB/SmolLM2-135M-Instruct` — a tiny 135M param language model
+- **Format**: ONNX quantized (int8) for fast CPU inference
+- **Method**: Predicts the probability of the `<|im_end|>` token being the next token given the conversation history
+- **Threshold**: If P(`<|im_end|>`) > 0.03, the turn is considered complete
+- **Transport**: gRPC on port 50051, defined by [turn.proto](file:///d:/work/ship-fast.studio/Ai-Assistant/turn.proto)
+
+**Why this matters**: Instead of using a simple silence timeout (which cuts off people who pause mid-sentence), this ML-based approach understands conversational context. "I want to order..." (pause) will NOT trigger a response, but "I want to order the blue shirt" will.
+
+If the turn detector says "not complete", the system waits 1–2 seconds, then processes anyway as a fallback.
+
+---
+
+### 7. AI Processing — [ai.js](file:///d:/work/ship-fast.studio/Ai-Assistant/services/ai.js)
+
+The core LLM integration using **Google Gemini 2.5 Flash Lite**:
+
+1. Maintains a multi-turn `messages[]` conversation with `user` and [model](file:///d:/work/ship-fast.studio/Ai-Assistant/vad.py#48-72) roles
+2. Sends the conversation to Gemini with the session's system prompt and tool definitions
+3. If Gemini returns **function calls**, executes them against Shopify APIs, then sends results back
+4. Parses the response as JSON: `{"response": "...", "output_channel": "audio|chat|sms"}`
+5. The `output_channel` lets the AI **choose** how to respond (e.g., user asks "send me an SMS" → AI routes to SMS)
+
+**Supported tools:**
+
+| Tool | Function |
+|------|----------|
+| [getAllProducts](file:///d:/work/ship-fast.studio/Ai-Assistant/server.js#49-111) | Fetch product catalog from Shopify |
+| [getUserDetailsByPhoneNo](file:///d:/work/ship-fast.studio/Ai-Assistant/services/shopify.js#48-64) | Look up customer by phone |
+| [getAllOrders](file:///d:/work/ship-fast.studio/Ai-Assistant/server.js#155-243) | Get customer's open orders |
+| [getOrderById](file:///d:/work/ship-fast.studio/Ai-Assistant/server.js#244-342) | Get specific order details |
+| [cancelOrder](file:///d:/work/ship-fast.studio/Ai-Assistant/server.js#353-432) | Cancel an order with refund/restock |
+| `checkOrderCancellable` | Check if order can be cancelled |
+| `hangUp` | End the call/connection |
+
+---
+
+### 8. Text-to-Speech (TTS) — Multiple Providers
+
+The system has **three TTS providers** for flexibility:
+
+| Provider | Function | Format | Use |
+|----------|----------|--------|-----|
+| **AWS Polly** | [synthesizeSpeech3()](file:///d:/work/ship-fast.studio/Ai-Assistant/server.js#1000-1026) | MP3 | ✅ **Primary** (currently active) |
+| **Deepgram Aura-2** | [synthesizeSpeech()](file:///d:/work/ship-fast.studio/Ai-Assistant/services/ai.js#123-135) | MP3 | Available, not primary |
+| **Gabber** | [synthesizeSpeech2()](file:///d:/work/ship-fast.studio/Ai-Assistant/server.js#957-999) | Raw audio | Available, not primary |
+| **Deepgram Live TTS** | [synthesizeSpeechStream()](file:///d:/work/ship-fast.studio/Ai-Assistant/services/ai.js#153-180) | PCM linear16 | Streaming (lower latency) |
+
+The streaming TTS from Deepgram is particularly interesting — it streams PCM audio chunks directly to LiveKit in real-time, without waiting for the full audio to be generated.
+
+---
+
+### 9. Audio Utilities — [audio.js](file:///d:/work/ship-fast.studio/Ai-Assistant/utils/audio.js)
+
+The [universalStreamAudio()](file:///d:/work/ship-fast.studio/Ai-Assistant/utils/audio.js#164-193) function is the **smart dispatcher** that handles output regardless of connection type:
+
+```
+if connection is WebSocket → Convert MP3 → µ-law → stream to Twilio
+if connection is LiveKit Room → Convert MP3 → PCM Int16 → stream via AudioSource
+```
+
+**Key features:**
+- **Interruption handling**: If the user starts speaking while AI is responding, [handleInterruption()](file:///d:/work/ship-fast.studio/Ai-Assistant/server.js#1685-1709) immediately stops the audio stream
+- **Chunk-based streaming**: Audio is sent in small chunks (~800 samples) with proper timing delays
+- **LiveKit integration**: Creates `AudioSource` → `LocalAudioTrack` → publishes to room
+
+---
+
+### 10. Multi-Channel Output — [handleOutput()](file:///d:/work/ship-fast.studio/Ai-Assistant/server.js#1317-1361) in [server.js:L1317](file:///d:/work/ship-fast.studio/Ai-Assistant/server.js#L1317-L1360)
+
+The AI response is routed by `output_channel`:
+
+| Channel | Action |
+|---------|--------|
+| `audio` | TTS → stream to LiveKit room or Twilio WS |
+| [chat](file:///d:/work/ship-fast.studio/Ai-Assistant/turn.py#66-80) | Send JSON text response via WebSocket |
+| `sms` | Send via Twilio SMS API |
+| `system` | Internal log only |
+
+---
+
+### 11. Shopify Service — [shopify.js](file:///d:/work/ship-fast.studio/Ai-Assistant/services/shopify.js)
+
+A clean abstraction over the Shopify Admin GraphQL API (`2025-07` version):
+- Centralized [shopifyGraphQL()](file:///d:/work/ship-fast.studio/Ai-Assistant/services/shopify.js#4-29) helper with timeout, error handling, and abort controller
+- All CRUD operations: products, customers, orders, cancellation
+- The [cancelOrder](file:///d:/work/ship-fast.studio/Ai-Assistant/server.js#353-432) mutation supports refunds, restocking, and customer notification emails
+
+---
+
+### 12. Telephony — [telephony.js](file:///d:/work/ship-fast.studio/Ai-Assistant/modules/telephony.js)
+
+Two functions for Twilio integration:
+- **[handleOutboundCall](file:///d:/work/ship-fast.studio/Ai-Assistant/modules/telephony.js#1-20)**: Initiates calls to phone numbers via Twilio API, passing custom parameters (name, prompt, recall URL) in the webhook URL
+- **[handleVoiceWebhook](file:///d:/work/ship-fast.studio/Ai-Assistant/modules/telephony.js#21-41)**: Generates TwiML XML to connect the call to the WebSocket voice server, passing caller info and prompt as stream parameters
+
+**Recall URL**: After a call ends, the server POST-s the full conversation history to a configured `recall_url` for logging/analytics.
+
+---
+
+### 13. Client App (React + Vite)
+
+| File | Size | Purpose |
+|------|------|---------|
+| [UnifiedAgent.jsx](file:///d:/work/ship-fast.studio/Ai-Assistant/client/src/components/UnifiedAgent.jsx) | 47KB | Main UI — unified agent interface for calls + chat |
+| [audio.jsx](file:///d:/work/ship-fast.studio/Ai-Assistant/client/src/components/audio.jsx) | 20KB | LiveKit audio call component |
+| [chat.jsx](file:///d:/work/ship-fast.studio/Ai-Assistant/client/src/components/chat.jsx) | 17KB | WebSocket chat component |
+| [bulkCall.jsx](file:///d:/work/ship-fast.studio/Ai-Assistant/client/src/components/bulkCall.jsx) | 5.5KB | Bulk outbound calling interface |
+
+Uses `livekit-client` for WebRTC audio and `react-router-dom` for routing.
+
+---
+
+### 14. Configuration — [config/](file:///d:/work/ship-fast.studio/Ai-Assistant/config)
+
+| File | Contents |
+|------|----------|
+| [index.js](file:///d:/work/ship-fast.studio/Ai-Assistant/config/index.js) | API keys, URLs — Deepgram, Gemini, OpenAI, LiveKit, Twilio, AWS, Shopify |
+| [constants.js](file:///d:/work/ship-fast.studio/Ai-Assistant/config/constants.js) | Runtime constants — sample rates, chunk sizes, GPT params, Polly voice |
+| [tools.js](file:///d:/work/ship-fast.studio/Ai-Assistant/config/tools.js) | LLM tool/function definitions for Gemini function calling |
+
+---
+
+## Dynamic Prompt Engineering
+
+The [setChannel()](file:///d:/work/ship-fast.studio/Ai-Assistant/server.js#1205-1289) function ([server.js:L1205](file:///d:/work/ship-fast.studio/Ai-Assistant/server.js#L1205-L1288)) dynamically **rebuilds the system prompt** whenever a new channel becomes available. The prompt tells the AI:
+1. You can communicate via these channels: `[audio, chat, sms]`
+2. Include user data (name, email, phone) for personalization
+3. **Always respond as strict JSON**: `{"response": "...", "output_channel": "..."}`
+4. Only hang up when explicitly asked
+
+This is what makes the system truly multi-modal — the AI decides the best output channel per response.
+
+---
+
+## Complete Data Flow Summary
+
+```
+┌─────────────┐    ┌──────────┐    ┌─────────┐    ┌─────────┐
+│  Phone Call  │───→│  Twilio  │───→│ WS:5002 │───→│ FFmpeg  │
+│  (µ-law)    │    │  Stream  │    │         │    │ 8k→16k  │
+└─────────────┘    └──────────┘    └─────────┘    └────┬────┘
+                                                       │
+┌─────────────┐    ┌──────────┐                        ▼
+│  Web Call   │───→│  LiveKit │───→ AudioStream ──→ FFmpeg
+│  (WebRTC)  │    │  Room    │    (48kHz s16le)    48k→16k
+└─────────────┘    └──────────┘                     ───┤
+                                                       │
+                                                       ▼
+                                               ┌──────────────┐
+                                               │  Silero VAD  │
+                                               │  (Python)    │
+                                               └──────┬───────┘
+                                                      │ speech chunks
+                                                      ▼
+                                               ┌──────────────┐
+                                               │  Deepgram    │
+                                               │  Nova-3 STT  │
+                                               └──────┬───────┘
+                                                      │ transcript
+                                                      ▼
+                                               ┌──────────────┐
+                                               │  SmolLM2     │
+                                               │  Turn Detect │
+                                               └──────┬───────┘
+                                                      │ end_of_turn?
+                                                      ▼
+                                               ┌──────────────┐
+                                               │  Gemini LLM  │──→ Shopify APIs
+                                               │  + Tools     │    (GraphQL)
+                                               └──────┬───────┘
+                                                      │ response JSON
+                                                      ▼
+                                               ┌──────────────┐
+                                               │ handleOutput │
+                                               │  Router      │
+                                               └──┬───┬───┬───┘
+                                                  │   │   │
+                                          audio   │chat│  sms
+                                            ▼     ▼     ▼
+                                          TTS   WS:5003  Twilio
+                                            │            SMS API
+                                            ▼
+                                       Stream to
+                                    Twilio/LiveKit
+```
+
+---
+
+## Technology Stack Summary
+
+| Layer | Technologies |
+|-------|-------------|
+| **Runtime** | Node.js (Express 5), Python 3 |
+| **Frontend** | React 19, Vite, livekit-client, Lucide icons |
+| **Real-time Audio** | LiveKit (WebRTC), WebSocket, FFmpeg |
+| **STT** | Deepgram Nova-3 (streaming WebSocket) |
+| **TTS** | AWS Polly, Deepgram Aura-2, Gabber |
+| **LLM** | Google Gemini 2.5 Flash Lite (function calling) |
+| **VAD** | Silero VAD (PyTorch, Python subprocess) |
+| **Turn Detection** | SmolLM2-135M (ONNX quantized), gRPC |
+| **Telephony** | Twilio (voice + SMS) |
+| **E-Commerce** | Shopify Admin GraphQL API |
+| **IPC** | gRPC (protobuf), stdin/stdout pipes, WebSocket |

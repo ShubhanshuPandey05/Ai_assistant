@@ -17,6 +17,8 @@ onnx_model_3/
 # Environment variables
 .env
 
+python_env
+
 # VSCode settings (optional)
 .vscode/
 

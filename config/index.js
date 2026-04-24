@@ -11,7 +11,7 @@ function getShopifyGraphQLEndpoint(version = '2025-07') {
 module.exports = {
   // Providers
   DEEPGRAM_API: process.env.DEEPGRAM_API,
-  GEMINI_AI: process.env.GEMINI_AI,
+  GEMINI_API: process.env.GEMINI_AI,
   OPEN_AI: process.env.OPEN_AI,
   GABBER_API_KEY: process.env.GABBER_API_KEY,
 

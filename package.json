@@ -15,6 +15,7 @@
     "@aws-sdk/client-polly": "^3.817.0",
     "@deepgram/sdk": "^4.2.0",
     "@google-cloud/text-to-speech": "^6.1.0",
+    "@google/genai": "^1.44.0",
     "@google/generative-ai": "^0.24.1",
     "@grpc/grpc-js": "^1.13.4",
     "@grpc/proto-loader": "^0.7.15",
@@ -33,13 +34,16 @@
     "imap-simple": "^5.1.0",
     "livekit-server-sdk": "^2.13.1",
     "mailparser": "^3.7.4",
+    "mem0ai": "^2.2.4",
     "nodemailer": "^7.0.5",
     "openai": "^4.103.0",
     "pg": "^8.16.0",
     "twilio": "^5.7.0",
     "url": "^0.11.4",
     "uuid": "^9.0.1",
-    "ws": "^8.18.2"
+    "ws": "^8.18.2",
+    "zod": "^4.3.6",
+    "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
     "nodemon": "^3.0.3"

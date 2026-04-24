@@ -27,7 +27,7 @@ class SessionManager {
                 return currentSession;
             }
             const id = generateRandomIdFromData(userData);
-            const session = this._buildSession(id, roomName, user.Name, user.Phone, prompt, tool);
+            const session = this._buildSession(id, roomName, user.Name, user.Phone, prompt, tool, user.UserId);
             userStorage.setActiveSession(userData, id);
             this.sessions.set(id, session);
             return session;
@@ -38,11 +38,12 @@ class SessionManager {
         return session;
     }
 
-    _buildSession(id, roomName, name, phone, prompt, tool, isTemp = false) {
+    _buildSession(id, roomName, name, phone, prompt, tool, isTemp = false, userid = null) {
         return {
             id,
             room: roomName,
             name,
+            userid,
             dgSocket: null,
             lastTranscript: '',
             transcriptBuffer: [],
@@ -91,7 +92,7 @@ class SessionManager {
     cleanupSession(session) {
         if (session) {
             console.log(`Cleaning up session ${session.id}`);
-            
+
             // Stop any ongoing audio stream
             if (session.currentAudioStream && typeof session.currentAudioStream.stop === 'function') {
                 try {
@@ -102,17 +103,17 @@ class SessionManager {
                     console.error(`Error stopping audio stream for session ${session.id}:`, error);
                 }
             }
-            
+
             // Clear audio-related flags
             session.isAIResponding = false;
             session.interruption = false;
             session.isAIResponding = false;
-            
+
             // Close Deepgram socket
             if (session.dgSocket?.readyState === 1) {
                 session.dgSocket.close();
             }
-            
+
             // Kill FFmpeg process
             if (session.ffmpegProcess) {
                 try {
@@ -122,7 +123,7 @@ class SessionManager {
                     console.error(`Error killing FFmpeg process for session ${session.id}:`, error);
                 }
             }
-            
+
             // Kill VAD process
             if (session.vadProcess) {
                 try {
@@ -132,7 +133,7 @@ class SessionManager {
                     console.error(`Error killing VAD process for session ${session.id}:`, error);
                 }
             }
-            
+
             // Clear session data
             session.prompt = '';
             session.chatHistory = [];
@@ -140,7 +141,7 @@ class SessionManager {
             session.interimResultsBuffer = [];
             session.vadDeepgramBuffer = Buffer.alloc(0);
             session.message = [];
-            
+
             console.log(`Session ${session.id} cleanup completed`);
         }
     }

@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+client/node_modules/
+python_env/
+__pycache__/
+
+# Build artifacts
+client/dist/
+
+# Git
+.git/
+.gitignore
+
+# Environment & secrets
+.env
+
+# IDE & OS
+.vscode/
+*.swp
+*.swo
+Thumbs.db
+.DS_Store
+
+# Misc
+*.md
+VAD_TEMP.txt
+model_quantization.py
+onnx_model/
+onnx_model_2/
+
+# Exclude non-quantized ONNX model (539MB) - only int8 version is used
+onnx_model_3/model.onnx
