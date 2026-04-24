@@ -93,7 +93,7 @@ COPY services/ ./services/
 COPY utils/ ./utils/
 
 # Copy ONNX models if they exist (for turn detection)
-COPY onnx_model_3/ ./onnx_model_3/
+# COPY onnx_model_3/ ./onnx_model_3/
 
 # Copy built client from Stage 1
 COPY --from=client-builder /app/client/dist ./client/dist
