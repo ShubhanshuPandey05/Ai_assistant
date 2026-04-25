@@ -86,25 +86,48 @@ function streamPCMAudioToLiveKit(room, session, onComplete) {
 
   let source = null;
   let track = null;
+  let publishedTrackSid = null;
   let isPublished = false;
   let audioQueue = [];
   let isStreaming = false;
+  let isStopping = false;
+  let unpublishRequested = false;
+  let hasCleanedUp = false;
+
+  async function cleanupTrack() {
+    if (hasCleanedUp) return;
+    hasCleanedUp = true;
+
+    const sid = publishedTrackSid;
+    isPublished = false;
+    publishedTrackSid = null;
+
+    if (sid && room && room.localParticipant) {
+      try {
+        await room.localParticipant.unpublishTrack(sid, false);
+        console.log(`Session ${session.id}: Unpublished audio track`);
+      } catch (e) {
+        console.error(`Error unpublishing track: ${e.message}`);
+      }
+    }
+  }
 
   const stopFunction = () => {
+    if (isStopping) return;
+    isStopping = true;
+    unpublishRequested = true;
+
     console.log(`Session ${session.id}: Immediately stopping LiveKit audio stream`);
     session.interruption = true;
     session.isAIResponding = false;
     session.currentAudioStream = null;
     audioQueue = []; // Clear the queue immediately
-    
-    // Unpublish track if it exists
-    if (isPublished && track) {
-      try { 
-        room.localParticipant.unpublishTrack(track); 
-        console.log(`Session ${session.id}: Unpublished audio track`);
-      } catch (e) {
-        console.error(`Error unpublishing track: ${e.message}`);
-      }
+
+    if (!isStreaming) {
+      cleanupTrack().finally(() => {
+        if (onComplete) onComplete();
+      });
+      return;
     }
     
     if (onComplete) onComplete();
@@ -115,9 +138,14 @@ function streamPCMAudioToLiveKit(room, session, onComplete) {
     try {
       source = new AudioSource(16000, 1);
       track = LocalAudioTrack.createAudioTrack('ai-response', source);
-      await room.localParticipant.publishTrack(track, { source: TrackSource.SOURCE_MICROPHONE, name: 'ai-response' });
+      const publication = await room.localParticipant.publishTrack(track, { source: TrackSource.SOURCE_MICROPHONE, name: 'ai-response' });
+      publishedTrackSid = publication && publication.sid ? publication.sid : null;
       isPublished = true;
       console.log(`Published audio track for session ${session.id}`);
+
+      if (unpublishRequested && !isStreaming) {
+        await cleanupTrack();
+      }
     } catch (e) {
       console.error(`Error initializing audio track: ${e.message}`);
       stopFunction();
@@ -147,6 +175,15 @@ function streamPCMAudioToLiveKit(room, session, onComplete) {
         return; 
       }
     }
+
+    if (session.interruption) {
+      isStreaming = false;
+      if (unpublishRequested) {
+        await cleanupTrack();
+      }
+      return;
+    }
+
     if (audioQueue.length === 0) {
       isStreaming = false;
       setTimeout(() => { 
